@@ -1,0 +1,62 @@
+name: Build Pre-Existing Chromium Source
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # Allows you to manually trigger the build from the GitHub UI
+
+jobs:
+  build-existing-src:
+    runs-on: self-hosted # Self-hosted runner is required due to the extreme duration of -j 1
+
+    steps:
+      - name: Verify Workspace and Core Dependencies
+        run: |
+          # Confirms the runner is executing from the correct root directory
+          if [ ! -d "src" ]; then
+            echo "Error: 'src' directory not found in the root workspace!"
+            exit 1
+          fi
+          sudo apt-get update
+          sudo apt-get install -y git python3 curl wget build-essential
+
+      - name: Configure Depot Tools Environment Path
+        run: |
+          # If depot_tools isn't already installed, pull it down to run the hooks
+          if [ ! -d "depot_tools" ]; then
+            git clone https://googlesource.com
+          fi
+          echo "$GITHUB_WORKSPACE/depot_tools" >> $GITHUB_PATH
+
+      - name: Process System and Project Hooks
+        run: |
+          cd src
+          # Synchronizes Google engine tools and native toolchain binary blobs
+          ./build/install-build-deps.sh --no-chromeos-fonts --no-prompt
+          gclient runhooks
+
+      - name: Generate Lightweight GN Configuration
+        run: |
+          cd src
+          # Stripping out debugging symbols drastically decreases memory consumption
+          gn gen out/Default --args="
+            is_debug=false 
+            is_component_build=false 
+            symbol_level=0 
+            blink_symbol_level=0
+            v8_symbol_level=0
+            enable_nacl=false
+            disable_fieldtrial_testing_config=true
+            target_cpu=\"x64\"
+          "
+
+      - name: Execute Single-Core Ninja Compilation
+        run: |
+          cd src
+          # -j 1 guarantees zero Out-Of-Memory program terminations
+          ninja -j 1 -C out/Default chrome
+
+      - name: Archive Built Browser Executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: completed-chromium-binary
+          path: src/out/Default/chrome
