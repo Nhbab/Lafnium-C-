@@ -1,37 +1,86 @@
-name: Build Chromium Mirror Layout
+name: Supersized Cross-Platform Chromium
 on:
   workflow_dispatch:
+    inputs:
+      target_platform:
+        description: 'Select Compilation Target'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - linux
+          - windows
+          - android
 
 jobs:
-  build:
-    # WARNING: Standard ubuntu-latest runner will run out of storage.
-    # It is highly recommended to change this to 'self-hosted'.
-    runs-on: ubuntu-latest 
+  configure-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps: set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          if [ "${{ github.event.inputs.target_platform }}" = "all" ]; then
+            echo 'matrix={"include":[{"target_os":"linux","cpu":"x64"},{"target_os":"win","cpu":"x64"},{"target_os":"android","cpu":"arm64"}]}' >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.target_platform }}" = "linux" ]; then
+            echo 'matrix={"include":[{"target_os":"linux","cpu":"x64"}]}' >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.target_platform }}" = "windows" ]; then
+            echo 'matrix={"include":[{"target_os":"win","cpu":"x64"}]}' >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.target_platform }}" = "android" ]; then
+            echo 'matrix={"include":[{"target_os":"android","cpu":"arm64"}]}' >> $GITHUB_OUTPUT
+          fi
+
+  compile-chromium:
+    needs: configure-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{fromJson(needs.configure-matrix.outputs.matrix)}}
 
     steps:
-      - name: Maximize Runner Disk Space
+      - name: Maximize Server Storage Disk Space
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc "/usr/local/share/boost" /usr/share/swift /usr/local/aws-cli
+          sudo apt-get clean
+          docker rmi $(docker images -q) || true
           df -h
 
-      # Do NOT use actions/checkout@v4 here if this is a full fork. 
-      # Instead, we pull depot_tools and map the existing workspace directory.
-      - name: Pull Google depot_tools
+      - name: Allocate 14GB Swap Space (RAM Extension)
         run: |
-          git clone https://googlesource.com ${{ github.workspace }}/depot_tools
+          sudo swapoff -a
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=14336
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: Shallow Codebase Extraction
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - name: Configure Network Git Buffers
+        run: |
+          git config --global http.postBuffer 1048576000
+          git config --global http.maxRequestSize 1048576000
+          git config --global core.compression 0
+          git config --global pack.windowMemory "256m"
+          git config --global pack.packSizeLimit "256m"
+          git config --global pack.threads "1"
+
+      - name: Setup depot_tools
+        run: |
+          git clone --depth=1 https://googlesource.com ${{ github.workspace }}/depot_tools
           echo "${{ github.workspace }}/depot_tools" >> $GITHUB_PATH
 
-      - name: Initialize Gclient Environment Configuration
+      - name: Generate Global .gclient File
         run: |
           export PATH=$PATH:${{ github.workspace }}/depot_tools
-          
-          # Move up one directory level to create the workspace container
           cd ${{ github.workspace }}/..
           
-          # Generate the system .gclient file pointing directly to your repository folder
+          # Force gclient to recognize cross-compilers inside your mirror
           cat <<EOF > .gclient
           solutions = [
             {
@@ -43,45 +92,69 @@ jobs:
               "custom_vars": {},
             },
           ]
+          target_os = [ "${{ matrix.target_os }}" ]
           EOF
 
-      - name: Bind Dependencies and Install Prerequisites
+      - name: Install System Dependencies & Sync Hooks
         run: |
           export PATH=$PATH:${{ github.workspace }}/depot_tools
-          # In the official GitHub mirror layout, the workspace root contains the automated linux script
           cd ${{ github.workspace }}
-          sudo ./build/install-build-deps.sh --no-prompt
           
-          # Pull down external binaries specified by the DEPS config file
+          # Linux toolchains are needed even when cross-compiling for Windows/Android
+          sudo ./build/install-build-deps.sh --no-prompt --arm --no-chromeos-fonts
+          
+          # For Windows cross-compilation on Linux, download specific cross-toolchains
+          if [ "${{ matrix.target_os }}" = "win" ]; then
+            sudo ./build/install-build-deps.sh --win --no-prompt
+          fi
+          
+          # Pull target-specific binary hooks
+          gclient sync --force --nohooks --upstream
           gclient runhooks
 
-      - name: Construct Compilation Files
+      - name: Supersized Aggressive GN Flag Configuration
         run: |
           export PATH=$PATH:${{ github.workspace }}/depot_tools
           cd ${{ github.workspace }}
-          mkdir -p out/Release
+          mkdir -p out/CrossBuild
           
-          # Critical compilation args tailored to lower memory footprint 
-          cat <<EOF > out/Release/args.gn
+          # Hyper-optimized parameters to block memory/storage allocation crashes
+          cat <<EOF > out/CrossBuild/args.gn
+          target_os = "${{ matrix.target_os }}"
+          target_cpu = "${{ matrix.cpu }}"
           is_debug = false
           symbol_level = 0
           blink_symbol_level = 0
-          target_cpu = "x64"
+          v8_symbol_level = 0
           is_component_build = true
           disable_fieldtrial_testing_config = true
+          enable_nacl = false
+          optimize_webui = false
+          enable_print_preview = false
+          enable_remoting = false
+          use_allocator_shim = false
           EOF
           
-          gn gen out/Release
+          gn gen out/CrossBuild
 
-      - name: Build Target
+      - name: Dual-Threaded Target Compile execution
         run: |
           export PATH=$PATH:${{ github.workspace }}/depot_tools
           cd ${{ github.workspace }}
-          # Safest lightweight validation target
-          autoninja -C out/Release mini_chromium
+          
+          # Targets headless shell or mini dependencies depending on the platform profile
+          if [ "${{ matrix.target_os }}" = "android" ]; then
+            autoninja -j 2 -C out/CrossBuild system_webview_apk
+          else
+            autoninja -j 2 -C out/CrossBuild headless_shell
+          fi
 
-      - name: Store Binaries
+      - name: Upload Platform Package Binaries
         uses: actions/upload-artifact@v4
         with:
-          name: chromium-github-mirror-binaries
-          path: ${{ github.workspace }}/out/Release/
+          name: chromium-${{ matrix.target_os }}-${{ matrix.matrix.cpu }}
+          path: |
+            ${{ github.workspace }}/out/CrossBuild/headless_shell
+            ${{ github.workspace }}/out/CrossBuild/*.exe
+            ${{ github.workspace }}/out/CrossBuild/apks/*.apk
+          if-no-files-found: warn
