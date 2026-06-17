@@ -1,14 +1,15 @@
-name: Build Minimal Chromium
+name: Build Chromium Mirror Layout
 on:
-  workflow_dispatch: # Allows manual triggers
+  workflow_dispatch:
 
 jobs:
   build:
-    # Use a large runner if available. Standard ubuntu-latest will likely fail on full targets.
+    # WARNING: Standard ubuntu-latest runner will run out of storage.
+    # It is highly recommended to change this to 'self-hosted'.
     runs-on: ubuntu-latest 
 
     steps:
-      - name: Free Up Disk Space
+      - name: Maximize Runner Disk Space
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
@@ -16,41 +17,52 @@ jobs:
           sudo rm -rf "/usr/local/share/boost"
           df -h
 
-      - name: Install System Dependencies
+      # Do NOT use actions/checkout@v4 here if this is a full fork. 
+      # Instead, we pull depot_tools and map the existing workspace directory.
+      - name: Pull Google depot_tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git python3 curl lsb-release sudo
+          git clone https://googlesource.com ${{ github.workspace }}/depot_tools
+          echo "${{ github.workspace }}/depot_tools" >> $GITHUB_PATH
 
-      - name: Install depot_tools
+      - name: Initialize Gclient Environment Configuration
         run: |
-          git clone https://googlesource.com
-          echo "$GITHUB_WORKSPACE/depot_tools" >> $GITHUB_PATH
+          export PATH=$PATH:${{ github.workspace }}/depot_tools
+          
+          # Move up one directory level to create the workspace container
+          cd ${{ github.workspace }}/..
+          
+          # Generate the system .gclient file pointing directly to your repository folder
+          cat <<EOF > .gclient
+          solutions = [
+            {
+              "name": "${{ github.event.repository.name }}",
+              "url": "https://github.com{{ github.repository }}.git",
+              "deps_file": "DEPS",
+              "managed": False,
+              "custom_deps": {},
+              "custom_vars": {},
+            },
+          ]
+          EOF
 
-      - name: Fetch Chromium Source Code
+      - name: Bind Dependencies and Install Prerequisites
         run: |
-          export PATH=$PATH:$GITHUB_WORKSPACE/depot_tools
-          # Create workspace directory
-          mkdir chromium && cd chromium
-          # Fetch only the latest commit to save disk space
-          fetch --no-history --nohooks chromium
-          cd src
-          # Install automated linux build deps
+          export PATH=$PATH:${{ github.workspace }}/depot_tools
+          # In the official GitHub mirror layout, the workspace root contains the automated linux script
+          cd ${{ github.workspace }}
           sudo ./build/install-build-deps.sh --no-prompt
-
-      - name: Run Gclient Sync and Hooks
-        run: |
-          export PATH=$PATH:$GITHUB_WORKSPACE/depot_tools
-          cd chromium/src
+          
+          # Pull down external binaries specified by the DEPS config file
           gclient runhooks
 
-      - name: Configure GN Build Arguments
+      - name: Construct Compilation Files
         run: |
-          export PATH=$PATH:$GITHUB_WORKSPACE/depot_tools
-          cd chromium/src
-          mkdir -p out/Default
+          export PATH=$PATH:${{ github.workspace }}/depot_tools
+          cd ${{ github.workspace }}
+          mkdir -p out/Release
           
-          # Crucial flags to prevent standard runner crashes:
-          cat <<EOF > out/Default/args.gn
+          # Critical compilation args tailored to lower memory footprint 
+          cat <<EOF > out/Release/args.gn
           is_debug = false
           symbol_level = 0
           blink_symbol_level = 0
@@ -59,18 +71,17 @@ jobs:
           disable_fieldtrial_testing_config = true
           EOF
           
-          gn gen out/Default
+          gn gen out/Release
 
-      - name: Compile Minimal Target
+      - name: Build Target
         run: |
-          export PATH=$PATH:$GITHUB_WORKSPACE/depot_tools
-          cd chromium/src
-          # Avoid building the massive 'chrome' target unless using large runners.
-          # 'mini_chromium' or helper targets are safer for basic validation.
-          autoninja -C out/Default mini_chromium
+          export PATH=$PATH:${{ github.workspace }}/depot_tools
+          cd ${{ github.workspace }}
+          # Safest lightweight validation target
+          autoninja -C out/Release mini_chromium
 
-      - name: Upload Build Artifacts
+      - name: Store Binaries
         uses: actions/upload-artifact@v4
         with:
-          name: mini-chromium-binaries
-          path: chromium/src/out/Default/
+          name: chromium-github-mirror-binaries
+          path: ${{ github.workspace }}/out/Release/
