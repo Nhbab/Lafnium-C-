@@ -1,0 +1,76 @@
+name: Build Minimal Chromium
+on:
+  workflow_dispatch: # Allows manual triggers
+
+jobs:
+  build:
+    # Use a large runner if available. Standard ubuntu-latest will likely fail on full targets.
+    runs-on: ubuntu-latest 
+
+    steps:
+      - name: Free Up Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          df -h
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git python3 curl lsb-release sudo
+
+      - name: Install depot_tools
+        run: |
+          git clone https://googlesource.com
+          echo "$GITHUB_WORKSPACE/depot_tools" >> $GITHUB_PATH
+
+      - name: Fetch Chromium Source Code
+        run: |
+          export PATH=$PATH:$GITHUB_WORKSPACE/depot_tools
+          # Create workspace directory
+          mkdir chromium && cd chromium
+          # Fetch only the latest commit to save disk space
+          fetch --no-history --nohooks chromium
+          cd src
+          # Install automated linux build deps
+          sudo ./build/install-build-deps.sh --no-prompt
+
+      - name: Run Gclient Sync and Hooks
+        run: |
+          export PATH=$PATH:$GITHUB_WORKSPACE/depot_tools
+          cd chromium/src
+          gclient runhooks
+
+      - name: Configure GN Build Arguments
+        run: |
+          export PATH=$PATH:$GITHUB_WORKSPACE/depot_tools
+          cd chromium/src
+          mkdir -p out/Default
+          
+          # Crucial flags to prevent standard runner crashes:
+          cat <<EOF > out/Default/args.gn
+          is_debug = false
+          symbol_level = 0
+          blink_symbol_level = 0
+          target_cpu = "x64"
+          is_component_build = true
+          disable_fieldtrial_testing_config = true
+          EOF
+          
+          gn gen out/Default
+
+      - name: Compile Minimal Target
+        run: |
+          export PATH=$PATH:$GITHUB_WORKSPACE/depot_tools
+          cd chromium/src
+          # Avoid building the massive 'chrome' target unless using large runners.
+          # 'mini_chromium' or helper targets are safer for basic validation.
+          autoninja -C out/Default mini_chromium
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-chromium-binaries
+          path: chromium/src/out/Default/
