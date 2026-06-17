@@ -17,7 +17,7 @@ jobs:
   configure-matrix:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps: set-matrix.outputs.matrix }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - id: set-matrix
         run: |
@@ -60,6 +60,8 @@ jobs:
         with:
           fetch-depth: 1
           submodules: false
+          # Places the code directly under the path 'src' to align with Google's gclient
+          path: src
 
       - name: Configure Network Git Buffers
         run: |
@@ -72,19 +74,20 @@ jobs:
 
       - name: Setup depot_tools
         run: |
-          git clone --depth=1 https://googlesource.com ${{ github.workspace }}/depot_tools
+          git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git ${{ github.workspace }}/depot_tools
           echo "${{ github.workspace }}/depot_tools" >> $GITHUB_PATH
 
       - name: Generate Global .gclient File
         run: |
           export PATH=$PATH:${{ github.workspace }}/depot_tools
-          cd ${{ github.workspace }}/..
+          cd ${{ github.workspace }}
           
-          # Force gclient to recognize cross-compilers inside your mirror
+          # CRITICAL FIX: The name variable is set explicitly to "src". 
+          # gclient maps this parameter as the explicit directory path.
           cat <<EOF > .gclient
           solutions = [
             {
-              "name": "${{ github.event.repository.name }}",
+              "name": "src",
               "url": "https://github.com{{ github.repository }}.git",
               "deps_file": "DEPS",
               "managed": False,
@@ -98,14 +101,64 @@ jobs:
       - name: Install System Dependencies & Sync Hooks
         run: |
           export PATH=$PATH:${{ github.workspace }}/depot_tools
-          cd ${{ github.workspace }}
+          cd ${{ github.workspace }}/src
           
-          # Linux toolchains are needed even when cross-compiling for Windows/Android
+          # Pull down default base OS compilers
           sudo ./build/install-build-deps.sh --no-prompt --arm --no-chromeos-fonts
           
-          # For Windows cross-compilation on Linux, download specific cross-toolchains
           if [ "${{ matrix.target_os }}" = "win" ]; then
             sudo ./build/install-build-deps.sh --win --no-prompt
+          fi
+          
+          # Execute hook checkouts relative to the .gclient path config
+          cd ${{ github.workspace }}
+          gclient sync --force --nohooks --upstream
+          gclient runhooks
+
+      - name: Supersized Aggressive GN Flag Configuration
+        run: |
+          export PATH=$PATH:${{ github.workspace }}/depot_tools
+          cd ${{ github.workspace }}/src
+          mkdir -p out/CrossBuild
+          
+          cat <<EOF > out/CrossBuild/args.gn
+          target_os = "${{ matrix.target_os }}"
+          target_cpu = "${{ matrix.cpu }}"
+          is_debug = false
+          symbol_level = 0
+          blink_symbol_level = 0
+          v8_symbol_level = 0
+          is_component_build = true
+          disable_fieldtrial_testing_config = true
+          enable_nacl = false
+          optimize_webui = false
+          enable_print_preview = false
+          enable_remoting = false
+          use_allocator_shim = false
+          EOF
+          
+          gn gen out/CrossBuild
+
+      - name: Dual-Threaded Target Compile execution
+        run: |
+          export PATH=$PATH:${{ github.workspace }}/depot_tools
+          cd ${{ github.workspace }}/src
+          
+          if [ "${{ matrix.target_os }}" = "android" ]; then
+            autoninja -j 2 -C out/CrossBuild system_webview_apk
+          else
+            autoninja -j 2 -C out/CrossBuild headless_shell
+          fi
+
+      - name: Upload Platform Package Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromium-${{ matrix.target_os }}-${{ matrix.cpu }}
+          path: |
+            ${{ github.workspace }}/src/out/CrossBuild/headless_shell
+            ${{ github.workspace }}/src/out/CrossBuild/*.exe
+            ${{ github.workspace }}/src/out/CrossBuild/apks/*.apk
+          if-no-files-found: warn
           fi
           
           # Pull target-specific binary hooks
