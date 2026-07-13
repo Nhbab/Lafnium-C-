@@ -94,12 +94,14 @@ suite('NewTabPageRealboxTabsTest', () => {
     });
   });
 
-  setup(() => {
+  setup(async () => {
     testProxy = new TestSearchboxBrowserProxy();
     SearchboxBrowserProxy.setInstance(testProxy);
 
     realbox = createAndAppendRealbox(
         {ntpRealboxNextEnabled: true, searchboxLayoutMode: 'Compact'});
+    await microtasksFinished();
+    testProxy.handler.reset();
   });
 
   test('on tab strip change does not trigger getRecentTabs call', async () => {
@@ -615,6 +617,7 @@ suite('NewTabPageRealboxNextTest', () => {
 
     testProxy.callbackRouterRemote.autocompleteResultChanged(
         createAutocompleteResultForTesting({
+          queryId: realbox.activeQueryId,
           input: realbox.$.input.inputElement.value.trimStart(),
           matches: matches,
         }));
@@ -650,6 +653,7 @@ suite('NewTabPageRealboxNextTest', () => {
 
     testProxy.callbackRouterRemote.autocompleteResultChanged(
         createAutocompleteResultForTesting({
+          queryId: realbox.activeQueryId,
           input: realbox.$.input.inputElement.value.trimStart(),
           matches: matches,
         }));
@@ -879,6 +883,7 @@ suite('NewTabPageRealboxNextTest', () => {
     ];
     testProxy.handler.setResultFor(
         'getRecentTabs', Promise.resolve({tabs: sampleTabs}));
+    testProxy.handler.reset();
 
     // Open context menu to trigger shown metrics.
     const entrypointAndMenu = realbox.shadowRoot.querySelector(
@@ -1077,6 +1082,20 @@ suite('NewTabPageRealboxNextTest', () => {
       assertFalse(composeButton.hasAttribute('has-user-input'));
     });
 
+    test('onInputStateChanged updates inputState_', async () => {
+      const newInputState = new MockInputState({
+        allowedTools: [ToolMode.kDeepSearch],
+        allowedModels: [ModelMode.kGeminiPro],
+      });
+      testProxy.callbackRouterRemote.onInputStateChanged(newInputState);
+      await testProxy.callbackRouterRemote.$.flushForTesting();
+      await microtasksFinished();
+      const inputState = realbox['inputState_'];
+      assertTrue(!!inputState);
+      assertEquals(ToolMode.kDeepSearch, inputState.allowedTools[0]);
+      assertEquals(ModelMode.kUnspecified, inputState.activeModel);
+    });
+
   suite('DynamicAiModeButton', () => {
     test('dynamic attribute is set correctly', async () => {
       loadTimeData.overrideValues({ntpRealboxDynamicAiModeButton: true});
@@ -1105,5 +1124,52 @@ suite('NewTabPageRealboxNextTest', () => {
       assertTrue(!!composeButton);
       assertFalse(composeButton.hasAttribute('dynamic'));
     });
+  });
+});
+
+suite('NewTabPageRealboxSmartTabSharingTest', () => {
+  let realbox: NtpSearchboxElement;
+  let testProxy: TestSearchboxBrowserProxy;
+
+  setup(async () => {
+    loadTimeData.overrideValues({
+      composeboxSmartTabSharingVisible: true,
+    });
+    testProxy = new TestSearchboxBrowserProxy();
+    testProxy.handler.setResultFor(
+        'getSmartTabSharingActive', Promise.resolve({active: true}));
+    SearchboxBrowserProxy.setInstance(testProxy);
+
+    realbox = createAndAppendRealbox({
+      ntpRealboxNextEnabled: true,
+    });
+    await microtasksFinished();
+  });
+
+  test('forwards smart tab sharing properties to context menu', async () => {
+    const contextElement = realbox.shadowRoot.querySelector(
+        'cr-composebox-contextual-entrypoint-and-menu');
+    assertTrue(!!contextElement);
+    await microtasksFinished();
+
+    assertTrue(contextElement.smartTabSharingVisible);
+    assertTrue(contextElement.smartTabSharingActive);
+
+    // Test that changing it in the context menu propagates back.
+    contextElement.fire('smart-tab-sharing-active-changed', {active: false});
+    await microtasksFinished();
+
+    assertFalse(realbox.smartTabSharingActive);
+    assertEquals(1, testProxy.handler.getCallCount('setSmartTabSharingActive'));
+    assertFalse(testProxy.handler.getArgs('setSmartTabSharingActive')[0]);
+  });
+
+  test('enabling STS opens composebox', async () => {
+    const openComposeboxPromise = eventToPromise('open-composebox', realbox);
+    const contextElement = realbox.shadowRoot.querySelector(
+        'cr-composebox-contextual-entrypoint-and-menu');
+    assertTrue(!!contextElement);
+    contextElement.fire('smart-tab-sharing-active-changed', {active: true});
+    await openComposeboxPromise;
   });
 });

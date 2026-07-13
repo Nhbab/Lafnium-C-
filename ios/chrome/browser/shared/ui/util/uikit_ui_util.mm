@@ -173,7 +173,7 @@ UIImage* NativeImage(int imageID) {
 }
 
 UIInterfaceOrientation GetInterfaceOrientation(UIWindow* window) {
-  return window.windowScene.interfaceOrientation;
+  return window.windowScene.effectiveGeometry.interfaceOrientation;
 }
 
 UIActivityIndicatorView* GetMediumUIActivityIndicatorView() {
@@ -503,8 +503,6 @@ CGFloat RemainingScrollDistanceToBottom(UIScrollView* scroll_view) {
 }
 
 CGFloat DeviceCornerRadius() {
-  UIUserInterfaceIdiom idiom = [[UIDevice currentDevice] userInterfaceIdiom];
-
   UIWindow* window = nil;
   for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) {
     UIWindowScene* windowScene =
@@ -517,12 +515,14 @@ CGFloat DeviceCornerRadius() {
   }
 
   // Estimated iPhone rounded corners radii.
-  if (window.safeAreaInsets.bottom && idiom == UIUserInterfaceIdiomPhone) {
+  if (window.safeAreaInsets.bottom &&
+      ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_PHONE) {
     return 50.0;
   }
 
   // Estimated iPad rounded corners radii.
-  if (window.safeAreaInsets.bottom && idiom == UIUserInterfaceIdiomPad) {
+  if (window.safeAreaInsets.bottom &&
+      ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET) {
     return 18.0;
   }
 
@@ -556,12 +556,8 @@ NSArray<UITrait>* TraitCollectionSetForTraits(NSArray<UITrait>* traits) {
       UITraitSceneCaptureState.class, UITraitToolbarItemPresentationSize.class,
       UITraitTypesettingLanguage.class, UITraitUserInterfaceIdiom.class,
       UITraitUserInterfaceLevel.class, UITraitUserInterfaceStyle.class,
-      UITraitVerticalSizeClass.class
+      UITraitVerticalSizeClass.class, UITraitListEnvironment.class
     ] mutableCopy];
-
-    if (@available(iOS 18, *)) {
-      [mutableTraits addObject:UITraitListEnvironment.class];
-    }
 
     everyUIMutableTrait = [NSArray arrayWithArray:mutableTraits];
   });

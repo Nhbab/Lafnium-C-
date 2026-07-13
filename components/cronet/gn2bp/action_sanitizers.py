@@ -14,103 +14,7 @@ import soong_ast
 import common
 
 
-class CommandLineUtility:
-    """Helper class to wrap and mutate a list of command line arguments."""
-
-    def __init__(self, args: List[str]):
-        self._args = self._normalize_args(args)
-
-    def _normalize_args(self, args: List[str]) -> List[str]:
-        # Convert ['--param=value'] to ['--param', 'value'] for consistency.
-        normalized_args = []
-        for arg in args:
-            if arg.startswith('-'):
-                normalized_args.extend(arg.split('='))
-            else:
-                normalized_args.append(arg)
-        return normalized_args
-
-    def get_args(self) -> List[str]:
-        return self._args
-
-    def set_args(self, args: List[str]):
-        self._args = self._normalize_args(args)
-
-    def has_arg(self, arg: str) -> bool:
-        return arg in self._args
-
-    def _get_arg_indices(self, target_arg: str) -> List[int]:
-        return [i for i, arg in enumerate(self._args) if arg == target_arg]
-
-    def _is_list_arg(self, arg: str) -> bool:
-        indices = self._get_arg_indices(arg)
-        return len(indices) > 0 and all((
-            i + 1 < len(self._args) and not self._args[i + 1].startswith('--'))
-                                        for i in indices)
-
-    def _is_value_arg(self, arg: str) -> bool:
-        return operator.countOf(self._args,
-                                arg) == 1 and self._is_list_arg(arg)
-
-    def get_flag_value(self, flag: str) -> str:
-        assert self._is_value_arg(
-            flag), f"Flag {flag} is not a single-value arg in {self._args}"
-        i = self._args.index(flag)
-        return self._args[i + 1]
-
-    def _should_fail_silently(self, arg: str, throw_if_absent: bool) -> bool:
-        return not throw_if_absent and not self.has_arg(arg)
-
-    def set_flag_value(self,
-                       flag: str,
-                       value: str,
-                       throw_if_absent: bool = True):
-        if self._should_fail_silently(flag, throw_if_absent):
-            return
-        assert self._is_value_arg(
-            flag), f"Flag {flag} is not a single-value arg in {self._args}"
-        i = self._args.index(flag)
-        self._args[i + 1] = value
-
-    def update_flag_value(self, flag: str, func, throw_if_absent: bool = True):
-        if self._should_fail_silently(flag, throw_if_absent):
-            return
-        self.set_flag_value(flag, func(self.get_flag_value(flag)),
-                            throw_if_absent)
-
-    def remove_flag(self, flag: str, throw_if_absent: bool = True):
-        if self._should_fail_silently(flag, throw_if_absent):
-            return
-        assert self._is_value_arg(
-            flag), f"Flag {flag} is not a single-value arg in {self._args}"
-        i = self._args.index(flag)
-        self._args.pop(i)
-        self._args.pop(i)
-
-    def append_flag_value(self, flag: str, value: str):
-        self._args.append(flag)
-        self._args.append(value)
-
-    def append_arg(self, arg: str):
-        self._args.append(arg)
-
-    def update_list_arg(self, flag: str, func, throw_if_absent: bool = True):
-        if self._should_fail_silently(flag, throw_if_absent):
-            return
-        assert self._is_list_arg(
-            flag), f"Flag {flag} is not a list arg in {self._args}"
-        indices = self._get_arg_indices(flag)
-        for i in indices:
-            self._args[i + 1] = func(self._args[i + 1])
-
-    def update_all_args(self, func):
-        self._args = [func(arg) for arg in self._args]
-
-    def set_arg_at(self, position: int, value: str):
-        self._args[position] = value
-
-    def update_arg_at(self, position: int, func):
-        self._args[position] = func(self._args[position])
+from arguments import CommandLineUtility
 
 
 class BaseActionSanitizer():
@@ -121,14 +25,14 @@ class BaseActionSanitizer():
         self.target = copy.deepcopy(target)
         if arch:
             # Merge arch specific attributes
-            self.target.sources |= arch.sources
-            self.target.inputs |= arch.inputs
-            self.target.outputs |= arch.outputs
+            self.target.common.sources |= arch.sources
+            self.target.common.inputs |= arch.inputs
+            self.target.common.outputs |= arch.outputs
             self.target.script = self.target.script or arch.script
-            self.target.args = self.target.args or arch.args
-            self.target.response_file_contents = \
-              self.target.response_file_contents or arch.response_file_contents
-        self.args = CommandLineUtility(self.target.args or [])
+            self.target.common.args = self.target.common.args or arch.args
+            self.target.common.response_file_contents = \
+              self.target.common.response_file_contents or arch.response_file_contents
+        self.args = CommandLineUtility(self.target.common.args or [])
 
     def get_name(self):
         return soong_ast.label_to_module_name(self.target.name, self.context)
@@ -156,7 +60,8 @@ class BaseActionSanitizer():
     def get_pre_cmd(self):
         pre_cmd = []
         out_dirs = [
-            out[:out.rfind("/")] for out in self.target.outputs if "/" in out
+            out[:out.rfind("/")] for out in self.target.common.outputs
+            if "/" in out
         ]
         # Sort the list to make the output deterministic.
         for out_dir in sorted(set(out_dirs)):
@@ -170,8 +75,9 @@ class BaseActionSanitizer():
         # shoves a $() macro in an arg, we still run that through shell quoting,
         # which does preserve the "$" but that's mostly luck. We should design
         # a better mechanism for handling "$" and $() macros.
-        return (([f"echo {shlex.quote(self.target.response_file_contents)} |"]
-                 if self.target.response_file_contents else []) +
+        return (([
+            f"echo {shlex.quote(self.target.common.response_file_contents)} |"
+        ] if self.target.common.response_file_contents else []) +
                 [f"$(location {gn_utils.label_to_path(self.target.script)})"] +
                 [shlex.quote(arg) for arg in self.args.get_args()])
 
@@ -185,13 +91,13 @@ class BaseActionSanitizer():
         return self.get_pre_cmd() + self.get_base_cmd()
 
     def get_outputs(self):
-        return self.target.outputs
+        return self.target.common.outputs
 
     def get_srcs(self):
         # gn treats inputs and sources for actions equally.
         # soong only supports source files inside srcs, non-source files are added as
         # tool_files dependency.
-        files = self.target.sources.union(self.target.inputs)
+        files = self.target.common.sources.union(self.target.common.inputs)
         return {
             gn_utils.label_to_path(file)
             for file in files if common.is_supported_source_file(file)
@@ -204,7 +110,7 @@ class BaseActionSanitizer():
         # gn treats inputs and sources for actions equally.
         # soong only supports source files inside srcs, non-source files are added as
         # tool_files dependency.
-        files = self.target.sources.union(self.target.inputs)
+        files = self.target.common.sources.union(self.target.common.inputs)
         tool_files = {
             gn_utils.label_to_path(file)
             # Files that starts with "out/" are usually an output of another action.
@@ -233,7 +139,7 @@ class BaseActionSanitizer():
         pass
 
     def get_deps(self):
-        return self.target.deps
+        return self.target.common.deps
 
     def sanitize(self):
         self._sanitize_args()
@@ -242,7 +148,8 @@ class BaseActionSanitizer():
     # Whether this target generates header files
     def is_header_generated(self):
         return any(
-            os.path.splitext(it)[1] == '.h' for it in self.target.outputs)
+            os.path.splitext(it)[1] == '.h'
+            for it in self.target.common.outputs)
 
 
 class GenerateCanonicalLocalesListSanitizer(BaseActionSanitizer):
@@ -428,7 +335,7 @@ class JavaJniGeneratorSanitizer(JniGeneratorSanitizer):
             re.sub('^jni_headers/', '', out)
             for out in super().get_outputs()
         }
-        self.target.outputs = [
+        self.target.common.outputs = [
             out for out in outputs if out.endswith(".srcjar")
         ]
         return outputs
@@ -457,8 +364,8 @@ class JniRegistrationGeneratorSanitizer(BaseActionSanitizer):
         return set(src for src in all_srcs if src.endswith(".java"))
 
     def _sanitize_inputs(self):
-        self.target.inputs = [
-            file for file in self.target.inputs
+        self.target.common.inputs = [
+            file for file in self.target.common.inputs
             if not file.startswith('//out/')
         ]
 
@@ -689,7 +596,7 @@ class ProtocJavaSanitizer(BaseActionSanitizer):
         # build protoc from source from //third_party/protobuf:protoc. We don't
         # need to add that as an input because it's already a tool dependency in
         # the generated module.
-        self.target.inputs.discard(
+        self.target.common.inputs.discard(
             "//third_party/android_build_tools/protoc/cipd/protoc")
 
     def get_tools(self):
@@ -752,7 +659,7 @@ def get_action_sanitizer(gn, target, gn_type, arch, is_test_target, context):
                 # with all  java sources found under `generate_jni` targets and fill
                 # the C++ version with the exact files.
                 if is_test_target:
-                    target.sources.update(gn.jni_java_sources)
+                    target.common.sources.update(gn.jni_java_sources)
                 return JavaJniRegistrationGeneratorSanitizer(
                     target, arch, is_test_target, context)
             return JniRegistrationGeneratorSanitizer(target, arch,

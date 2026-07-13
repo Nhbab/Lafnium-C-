@@ -21,6 +21,8 @@ import android.app.Activity;
 import android.view.MotionEvent;
 import android.view.View;
 
+import androidx.annotation.ColorInt;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -33,9 +35,11 @@ import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.robolectric.Robolectric;
+import org.robolectric.shadows.ShadowLooper;
 
 import org.chromium.base.MathUtils;
 import org.chromium.base.UnownedUserDataHost;
+import org.chromium.base.supplier.OneshotSupplierImpl;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Features.DisableFeatures;
 import org.chromium.base.test.util.Features.EnableFeatures;
@@ -59,13 +63,20 @@ import org.chromium.chrome.browser.glic.GlicNudgeDelegateBridge;
 import org.chromium.chrome.browser.glic.GlicNudgeDelegateBridgeJni;
 import org.chromium.chrome.browser.glic.GlicPrefNames;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.tabmodel.TabModel;
+import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.ui.browser_window.ChromeAndroidTask;
 import org.chromium.chrome.browser.ui.browser_window.ChromeAndroidTaskTracker;
+import org.chromium.chrome.browser.ui.side_ui.SideUiCoordinator.SideUiId;
+import org.chromium.chrome.browser.ui.side_ui.SideUiCoordinator.SideUiShowability;
+import org.chromium.chrome.browser.ui.side_ui.SideUiObserver;
+import org.chromium.chrome.browser.ui.side_ui.SideUiStateProvider;
 import org.chromium.components.prefs.PrefChangeRegistrar;
 import org.chromium.components.prefs.PrefChangeRegistrarJni;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.components.user_prefs.UserPrefsJni;
+import org.chromium.ui.base.LocalizationUtils;
 import org.chromium.ui.base.TestActivity;
 import org.chromium.ui.base.WindowAndroid;
 
@@ -74,7 +85,7 @@ import java.util.Collections;
 import java.util.List;
 
 @RunWith(BaseRobolectricTestRunner.class)
-@EnableFeatures(ChromeFeatureList.GLIC)
+@EnableFeatures({ChromeFeatureList.GLIC, ChromeFeatureList.ENABLE_ANDROID_SIDE_PANEL})
 public class StripLayoutTrailingButtonsCoordinatorTest {
     @Rule public MockitoRule mMockitoRule = MockitoJUnit.rule();
 
@@ -93,17 +104,24 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
     @Mock private ChromeAndroidTaskTracker mTaskTracker;
     @Mock private ChromeAndroidTask mTask;
     @Mock private ActorKeyedService mActorKeyedService;
+    @Mock private TabModelSelector mTabModelSelector;
+    @Mock private TabModel mIncognitoTabModel;
     @Mock private GlicNudgeDelegateBridge.Natives mGlicNudgeDelegateBridgeJniMock;
+    private final OneshotSupplierImpl<SideUiStateProvider> mSideUiStateProviderSupplier =
+            new OneshotSupplierImpl<>();
+    @Mock private SideUiStateProvider mSideUiStateProvider;
     @Captor private ArgumentCaptor<List<Animator>> mAnimatorsListCaptor;
 
     private Activity mActivity;
     private StripLayoutTrailingButtonsCoordinator mCoordinator;
+    private TintedCompositorButton mModelSelectorButton;
     private TintedCompositorTextButton mGlicButton;
     private TintedCompositorButton mGlicDismissButton;
     private TintedCompositorTextButton mGlicActorButton;
     private static final float BUTTON_WIDTH = 42.0f;
     private final long mBwiPtr = 123L;
     private boolean mIsIncognito;
+    private boolean mGlicIphShowing;
 
     @Before
     public void setUp() {
@@ -134,6 +152,11 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
 
         PrefChangeRegistrarJni.setInstanceForTesting(mPrefChangeRegistrarJniMock);
         when(mPrefChangeRegistrarJniMock.init(any(), any())).thenReturn(1L);
+        when(mTabModelSelector.getModel(true)).thenReturn(mIncognitoTabModel);
+        when(mIncognitoTabModel.getCount()).thenReturn(0);
+
+        when(mSideUiStateProvider.canShowSideUi(SideUiId.SIDE_PANEL)).thenReturn(true);
+        mSideUiStateProviderSupplier.set(mSideUiStateProvider);
 
         mCoordinator =
                 new StripLayoutTrailingButtonsCoordinator(
@@ -141,22 +164,28 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
                         mUpdateHost,
                         mRenderHost,
                         mWindowAndroid,
-                        mGlicClickHandler,
                         /* density= */ 1.0f,
                         mToolbarContainerView,
-                        /* keyboardFocusHandler= */ null,
                         /* isAppInDesktopWindow= */ false,
                         /* isTopResumedActivity= */ false,
                         mTaskTracker,
                         mIsIncognito,
-                        () -> null,
+                        () -> mTabModelSelector,
+                        mSideUiStateProviderSupplier,
+                        () -> {},
+                        (isFocused, view) -> {},
+                        mGlicClickHandler,
+                        /* glicKeyboardFocusHandler= */ null,
+                        () -> mGlicIphShowing,
                         mObserver);
+        ShadowLooper.idleMainLooper();
         mCoordinator.onProfileAvailable(mProfile);
         mCoordinator.setLayerTitleCache(mLayerTitleCache);
         mCoordinator.onSizeChanged(1000.f, 0.f, 0.f, 0.f);
         mGlicButton = mCoordinator.getGlicButton();
         if (mGlicButton != null) mGlicDismissButton = mGlicButton.getDismissButton();
         mGlicActorButton = mCoordinator.getGlicActorButton();
+        mModelSelectorButton = mCoordinator.getModelSelectorButton();
     }
 
     @After
@@ -164,6 +193,169 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
         if (mCoordinator != null) {
             mCoordinator.destroy();
         }
+    }
+
+    @Test
+    public void testModelSelectorButtonDrawX() {
+        // Set model selector button position.
+        when(mIncognitoTabModel.getCount()).thenReturn(1);
+        when(mPrefService.getBoolean(GlicPrefNames.GLIC_PINNED_TO_TABSTRIP)).thenReturn(false);
+        mCoordinator.onSizeChanged(
+                /* width= */ 800f,
+                /* rightPadding= */ 0f,
+                /* leftPadding= */ 0f,
+                /* topPadding= */ 0f);
+
+        // Verify model selector button x-position.
+        // width(800) - endPadding(8) - width(32) = 760
+        assertEquals(
+                "Model selector button x-position is not as expected",
+                760.f,
+                mModelSelectorButton.getDrawX(),
+                0.0);
+    }
+
+    @Test
+    public void testModelSelectorButtonDrawX_Rtl() {
+        // Set model selector button position.
+        LocalizationUtils.setRtlForTesting(true);
+        when(mIncognitoTabModel.getCount()).thenReturn(1);
+        when(mPrefService.getBoolean(GlicPrefNames.GLIC_PINNED_TO_TABSTRIP)).thenReturn(false);
+        mCoordinator.onSizeChanged(
+                /* width= */ 800f,
+                /* rightPadding= */ 0f,
+                /* leftPadding= */ 0f,
+                /* topPadding= */ 0f);
+
+        // Verify model selector button position.
+        assertEquals(
+                "Model selector button x-position is not as expected",
+                8.f, // BUTTON_END_PADDING
+                mModelSelectorButton.getDrawX(),
+                0.0);
+    }
+
+    @Test
+    public void testModelSelectorButtonDrawY() {
+        // Set model selector button position.
+        when(mIncognitoTabModel.getCount()).thenReturn(1);
+        mCoordinator.onSizeChanged(
+                /* width= */ 800f,
+                /* rightPadding= */ 0f,
+                /* leftPadding= */ 0f,
+                /* topPadding= */ 0f);
+
+        // Verify model selector button y-position.
+        assertEquals(
+                "Model selector button y-position is not as expected",
+                3.f,
+                mModelSelectorButton.getDrawY(),
+                0.0);
+    }
+
+    @Test
+    public void testModelSelectorButtonHoverHighlightProperties() {
+        // Set model selector button position.
+        when(mIncognitoTabModel.getCount()).thenReturn(1);
+        mCoordinator.onSizeChanged(
+                /* width= */ 800f,
+                /* rightPadding= */ 0f,
+                /* leftPadding= */ 0f,
+                /* topPadding= */ 0f);
+
+        // Verify model selector button background resource id.
+        assertEquals(
+                "Model selector button background resource id is not as expected",
+                R.drawable.bg_circle_tab_strip_button,
+                mModelSelectorButton.getBackgroundResourceId());
+
+        TintedCompositorButton msb = mModelSelectorButton;
+
+        // Verify model selector button hover highlight default tint.
+        msb.setHovered(true);
+        @ColorInt
+        int hoverBackgroundDefaultColor =
+                mActivity.getColor(R.color.tab_strip_button_bg_hover_tint);
+        assertEquals(
+                "Model selector button hover highlight default tint is not as expected",
+                hoverBackgroundDefaultColor,
+                msb.getBackgroundTint());
+
+        // Verify model selector button hover highlight pressed tint.
+        msb.setHovered(false);
+        msb.setPressed(true, true);
+        @ColorInt
+        int hoverBackgroundPressedColor =
+                mActivity.getColor(R.color.tab_strip_button_bg_peripheral_pressed_tint);
+        assertEquals(
+                "Model selector button hover highlight pressed tint is not as expected",
+                hoverBackgroundPressedColor,
+                msb.getBackgroundTint());
+
+        // Verify incognito properties.
+        mCoordinator.onTabModelSwitched(/* incognito= */ true);
+
+        // Verify model selector button incognito hover highlight default tint.
+        msb.setPressed(false);
+        msb.setHovered(true);
+        @ColorInt
+        int hoverBackgroundDefaultIncognitoColor =
+                mActivity.getColor(R.color.tab_strip_button_bg_incognito_hover_tint);
+        assertEquals(
+                "Model selector button incognito hover highlight default tint is not as expected",
+                hoverBackgroundDefaultIncognitoColor,
+                msb.getBackgroundTint());
+
+        // Verify model selector button incognito hover highlight pressed tint.
+        msb.setHovered(false);
+        msb.setPressed(true, true);
+        @ColorInt
+        int hoverBackgroundPressedIncognitoColor =
+                mActivity.getColor(R.color.tab_strip_button_bg_incognito_peripheral_pressed_tint);
+        assertEquals(
+                "Model selector button incognito hover highlight pressed tint is not as expected",
+                hoverBackgroundPressedIncognitoColor,
+                msb.getBackgroundTint());
+    }
+
+    @Test
+    public void testModelSelectorButtonHoverEnter() {
+        when(mIncognitoTabModel.getCount()).thenReturn(1);
+        mCoordinator.onSizeChanged(
+                /* width= */ 800f,
+                /* rightPadding= */ 0f,
+                /* leftPadding= */ 0f,
+                /* topPadding= */ 0f);
+
+        int x = (int) mModelSelectorButton.getDrawX();
+        // Hover enters. Mouse position within MSB range(32dp width + 12dp click slop).
+        mCoordinator.onHoverEvent(x + 1, 0);
+        assertTrue("Model selector button should be hovered", mModelSelectorButton.isHovered());
+
+        // Verify model selector button is NOT hovered when mouse is not on the button.
+        // Mouse position out of MSB range(32dp width + 12dp click slop).
+        mCoordinator.onHoverEvent(x + 45, 0);
+        assertFalse(
+                "Model selector button should NOT be hovered", mModelSelectorButton.isHovered());
+    }
+
+    @Test
+    public void testModelSelectorButtonHoverOnDown() {
+        when(mIncognitoTabModel.getCount()).thenReturn(1);
+        mCoordinator.onSizeChanged(
+                /* width= */ 800f,
+                /* rightPadding= */ 0f,
+                /* leftPadding= */ 0f,
+                /* topPadding= */ 0f);
+
+        // Verify model selector button is in pressed state, not hover state, when click is from
+        // mouse.
+        mCoordinator.onDown(mModelSelectorButton.getDrawX() + 1, 0, 1);
+        assertFalse(
+                "Model selector button should not be hovered", mModelSelectorButton.isHovered());
+        assertTrue(
+                "Model selector button should be pressed from mouse",
+                mModelSelectorButton.isPressedFromMouse());
     }
 
     @Test
@@ -189,6 +381,26 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
     }
 
     @Test
+    public void testGlicButton_HiddenWhenSidePanelNotShowable() {
+        assertTrue("Glic button should be visible initially.", mCoordinator.shouldGlicBeVisible());
+
+        when(mSideUiStateProvider.canShowSideUi(SideUiId.SIDE_PANEL)).thenReturn(false);
+
+        // Notify observer of updates
+        ArgumentCaptor<SideUiObserver> observerCaptor =
+                ArgumentCaptor.forClass(SideUiObserver.class);
+        verify(mSideUiStateProvider).addObserver(observerCaptor.capture());
+        observerCaptor
+                .getValue()
+                .onShowableSideUisUpdated(
+                        new SideUiShowability(List.of(), List.of(SideUiId.SIDE_PANEL)));
+
+        assertFalse(
+                "Glic button should be hidden when side panel is not showable.",
+                mCoordinator.shouldGlicBeVisible());
+    }
+
+    @Test
     public void testGlicActorButtonTextCollapsesOnSmallScreen() {
         assertNotNull("Actor button should be created.", mGlicActorButton);
 
@@ -200,9 +412,10 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
                 /* topPadding= */ 0f);
 
         // Set text while on large screen
-        when(mLayerTitleCache.getUpdatedGlicButtonText(any(), anyBoolean())).thenReturn(123);
+        when(mLayerTitleCache.getUpdatedGlicButtonText(any(), anyBoolean(), anyBoolean()))
+                .thenReturn(123);
         when(mLayerTitleCache.getButtonTextWidth(any())).thenReturn(100);
-        mCoordinator.setGlicButtonText("Actor Text", /* isActor= */ true);
+        mCoordinator.setGlicActorButtonText("Actor Text", /* forceUpdate= */ false);
         mCoordinator.updateButtonTextProperties(mGlicActorButton);
 
         assertEquals(
@@ -251,7 +464,8 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
             Mockito.clearInvocations(coordinatorSpy);
         }
         float initialWidth = button.getWidth();
-        when(mLayerTitleCache.getUpdatedGlicButtonText(any(), anyBoolean())).thenReturn(123);
+        when(mLayerTitleCache.getUpdatedGlicButtonText(any(), anyBoolean(), anyBoolean()))
+                .thenReturn(123);
         when(mLayerTitleCache.getButtonTextWidth(any())).thenReturn(100);
 
         // Set text
@@ -267,7 +481,8 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
         Mockito.clearInvocations(coordinatorSpy);
 
         // Assert the button has expanded in width
-        verify(mLayerTitleCache, Mockito.atLeastOnce()).getUpdatedGlicButtonText(text, isActor);
+        verify(mLayerTitleCache, Mockito.atLeastOnce())
+                .getUpdatedGlicButtonText(Mockito.eq(text), Mockito.eq(isActor), anyBoolean());
         assertTrue(
                 "Button width should increase to accommodate text.",
                 button.getWidth() > initialWidth);
@@ -302,6 +517,11 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
                 1.0f,
                 mGlicButton.getOpacity(),
                 MathUtils.EPSILON);
+        assertEquals(
+                "Glic button clickable threshold should be 1.0 when focused.",
+                1.0f,
+                mGlicButton.getClickableOpacityThreshold(),
+                MathUtils.EPSILON);
 
         // Unfocused state
         mCoordinator.updateGlicButtonOpacity(
@@ -310,6 +530,11 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
                 "Glic button opacity should be 0.65 when unfocused in desktop windowing mode.",
                 0.65f,
                 mGlicButton.getOpacity(),
+                MathUtils.EPSILON);
+        assertEquals(
+                "Glic button clickable threshold should be 0.65 when unfocused.",
+                0.65f,
+                mGlicButton.getClickableOpacityThreshold(),
                 MathUtils.EPSILON);
     }
 
@@ -394,28 +619,15 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
 
     @Test
     public void testOnLongPress_OnGlicButton() {
-        mCoordinator.onSizeChanged(
-                /* width= */ 1000f,
-                /* rightPadding= */ 10f,
-                /* leftPadding= */ 10f,
-                /* topPadding= */ 10f);
-
-        when(mWindowAndroid.getActivity()).thenReturn(new WeakReference<>(mActivity));
-
-        float x = mGlicButton.getDrawX() + mGlicButton.getWidth() / 2;
-        float y = mGlicButton.getDrawY() + mGlicButton.getHeight() / 2;
-
-        boolean handled = mCoordinator.onLongPress(x, y, /* tabWidthDp= */ 100f);
-        assertTrue(handled);
-        assertFalse(
-                "Glic button should not be pressed after long press menu is shown.",
-                mGlicButton.isPressed());
-        assertTrue("Glic context menu should be showing", mCoordinator.isMenuShowing());
+        verifyGlicButtonContextMenuTriggered(/* viaSecondaryClick= */ false);
     }
 
     @Test
-    // TODO(crbug.com/483475735): Combine into testSecondaryClick after launch
     public void testSecondaryClick_OnGlicButton() {
+        verifyGlicButtonContextMenuTriggered(/* viaSecondaryClick= */ true);
+    }
+
+    private void verifyGlicButtonContextMenuTriggered(boolean viaSecondaryClick) {
         mCoordinator.onSizeChanged(
                 /* width= */ 1000f,
                 /* rightPadding= */ 10f,
@@ -426,13 +638,15 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
         float y = mGlicButton.getDrawY() + mGlicButton.getHeight() / 2;
 
         boolean handled =
-                mCoordinator.click(
-                        0L, x, y, MotionEvent.BUTTON_SECONDARY, 0, /* tabWidthDp= */ 100f);
-        assertTrue(handled);
+                viaSecondaryClick
+                        ? mCoordinator.click(
+                                0L, x, y, MotionEvent.BUTTON_SECONDARY, 0, /* tabWidthDp= */ 100f)
+                        : mCoordinator.onLongPress(x, y, /* tabWidthDp= */ 100f);
+        assertTrue("Context menu trigger should be handled.", handled);
         assertFalse(
-                "Glic button should not be pressed after long press menu is shown.",
+                "Glic button should not be pressed after context menu is shown.",
                 mGlicButton.isPressed());
-        assertTrue("Glic context menu should be showing", mCoordinator.isMenuShowing());
+        assertTrue("Glic context menu should be showing.", mCoordinator.isMenuShowing());
     }
 
     @Test
@@ -519,7 +733,8 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
         assertNotNull("Glic button should be created.", mGlicButton);
         assertNotNull("Glic Actor button should be created.", mGlicActorButton);
 
-        when(mLayerTitleCache.getUpdatedGlicButtonText(any(), anyBoolean())).thenReturn(123);
+        when(mLayerTitleCache.getUpdatedGlicButtonText(any(), anyBoolean(), anyBoolean()))
+                .thenReturn(123);
         when(mLayerTitleCache.getButtonTextWidth(any())).thenReturn(100);
 
         // Create a unified spy of the coordinator for sequential transition verification
@@ -551,7 +766,7 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
         Mockito.clearInvocations(coordinatorSpy);
 
         // 3. Test Glic Actor Button Expansion Transition (Simulating actor task nudge)
-        coordinatorSpy.setGlicButtonText("Actor Nudge", /* isActor= */ true);
+        coordinatorSpy.setGlicActorButtonText("Actor Nudge", /* forceUpdate= */ false);
         coordinatorSpy.updateButtonTextProperties(mGlicActorButton);
         Mockito.verify(coordinatorSpy, Mockito.atLeastOnce())
                 .startAnimations(mAnimatorsListCaptor.capture(), Mockito.any());
@@ -655,7 +870,7 @@ public class StripLayoutTrailingButtonsCoordinatorTest {
         mCoordinator.setGlicActorButtonVisible(true, /* animate= */ false);
         mGlicActorButton.setWidth(BUTTON_WIDTH);
         mGlicActorButton.setOpacity(1.0f);
-        mCoordinator.updateGlicButtonPosition();
+        mCoordinator.updateButtonPositions();
     }
 
     @Test

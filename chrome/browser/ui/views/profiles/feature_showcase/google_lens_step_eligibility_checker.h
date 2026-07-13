@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_PROFILES_FEATURE_SHOWCASE_GOOGLE_LENS_STEP_ELIGIBILITY_CHECKER_H_
 #define CHROME_BROWSER_UI_VIEWS_PROFILES_FEATURE_SHOWCASE_GOOGLE_LENS_STEP_ELIGIBILITY_CHECKER_H_
 
+#include "chrome/browser/ui/views/profiles/feature_showcase/feature_showcase_constants.h"
 #include "chrome/browser/ui/views/profiles/feature_showcase/feature_showcase_step_eligibility_checker.h"
 
 class GoogleLensStepEligibilityChecker

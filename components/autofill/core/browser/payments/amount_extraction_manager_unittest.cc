@@ -44,7 +44,8 @@ namespace autofill::payments {
 
 namespace {
 
-using base::test::EqualsProto;
+using ::autofill::autofill_metrics::AiAmountExtractionInvalidResponseReason;
+using ::base::test::EqualsProto;
 using ::testing::_;
 using ::testing::A;
 using ::testing::ElementsAre;
@@ -58,8 +59,6 @@ using ModelExecutionCallback = base::OnceCallback<void(
     std::unique_ptr<optimization_guide::ModelQualityLogEntry>)>;
 using ApcFetchCallback = base::OnceCallback<void(
     std::optional<optimization_guide::proto::AnnotatedPageContent>)>;
-using autofill_metrics::AiAmountExtractionInvalidResponseReason;
-}  // namespace
 
 class MockAutofillDriver : public TestAutofillDriver {
  public:
@@ -146,13 +145,13 @@ class AmountExtractionManagerTest
   }
 
   void FakeCheckoutAmountReceived(const std::string& extracted_amount) {
-    amount_extraction_manager_->OnCheckoutAmountReceived(base::TimeTicks::Now(),
-                                                         extracted_amount);
+    test_api(*amount_extraction_manager_)
+        .OnCheckoutAmountReceived(base::TimeTicks::Now(), extracted_amount);
   }
 
   void FakeAmountExtractionTimeout() {
     test_api(*amount_extraction_manager_).SetSearchRequestPending(true);
-    amount_extraction_manager_->OnTimeoutReached();
+    test_api(*amount_extraction_manager_).OnTimeoutReached();
   }
 
   void FakeCheckoutAmountReceivedFromAi(
@@ -175,12 +174,13 @@ class AmountExtractionManagerTest
         base::StrCat({"type.googleapis.com/", response.GetTypeName()}));
     any_result.set_value(serialized_metadata);
 
-    amount_extraction_manager_->OnCheckoutAmountReceivedFromAi(
-        is_mocking_empty_result
-            ? optimization_guide::OptimizationGuideModelExecutionResult()
-            : optimization_guide::OptimizationGuideModelExecutionResult(
-                  any_result, nullptr),
-        nullptr);
+    test_api(*amount_extraction_manager_)
+        .OnCheckoutAmountReceivedFromAi(
+            is_mocking_empty_result
+                ? optimization_guide::OptimizationGuideModelExecutionResult()
+                : optimization_guide::OptimizationGuideModelExecutionResult(
+                      any_result, nullptr),
+            nullptr);
   }
 
   void SetUpCheckoutAmountExtractionCall(const std::string& extracted_amount,
@@ -487,6 +487,9 @@ TEST_F(AmountExtractionManagerTest,
 TEST_F(
     AmountExtractionManagerTest,
     AiBasedAmountExtractionShouldTriggerWhenBnplSuggestionPresentButFeatureDisabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      features::kAutofillEnableAiBasedAmountExtraction);
   EXPECT_THAT(
       amount_extraction_manager_->GetEligibleFeatures(
           /*is_autofill_payments_enabled=*/true,
@@ -851,6 +854,24 @@ TEST_F(AmountExtractionManagerTest, ValidateResponse_EmptyResponse) {
   ASSERT_FALSE(result.has_value());
   // Missing amount has higher priority.
   EXPECT_EQ(result.error(), AiAmountExtractionResult::Error::kAmountMissing);
+}
+
+TEST_F(AmountExtractionManagerTest, ValidateResponse_UnsuccessfulExtraction) {
+  optimization_guide::proto::AmountExtractionResponse response;
+  response.set_is_successful(false);
+  response.set_final_checkout_amount(0.0);
+  response.set_currency("GBP");
+
+  ASSERT_FALSE(
+      amount_extraction_manager_->SeenUnsupportedCurrencyForPageLoad());
+
+  AiAmountExtractionResult::ResultType result =
+      amount_extraction_manager_->ValidateAmountExtractionResponse(response);
+
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(result.error(), AiAmountExtractionResult::Error::kAmountMissing);
+  EXPECT_FALSE(
+      amount_extraction_manager_->SeenUnsupportedCurrencyForPageLoad());
 }
 
 TEST_F(AmountExtractionManagerTest,
@@ -2136,4 +2157,5 @@ TEST_F(AmountExtractionManagerTest,
 #endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) ||
         // BUILDFLAG(IS_CHROMEOS)
 
+}  // namespace
 }  // namespace autofill::payments

@@ -34,6 +34,9 @@ class CardboardSdk;
 using CardboardRequestSessionCallback =
     base::OnceCallback<void(mojom::XRRuntimeSessionResultPtr)>;
 
+// CardboardRenderLoop implements the Android Cardboard WebXR render loop.
+// It runs on a dedicated GL/render thread (JavaHandlerThread) to safely
+// perform EGL and Cardboard SDK operations.
 class CardboardRenderLoop : public base::android::JavaHandlerThread,
                             public device::mojom::XRFrameDataProvider,
                             public device::mojom::XRSessionController,
@@ -69,7 +72,9 @@ class CardboardRenderLoop : public base::android::JavaHandlerThread,
                          const gfx::RectF& left_bounds,
                          const gfx::RectF& right_bounds,
                          const gfx::Size& source_size) override;
-  void SubmitFrameMissing(int16_t frame_index, const gpu::SyncToken&) override;
+  void SubmitFrameMissing(
+      int16_t frame_index,
+      gpu::SharedImageExportResult camera_image_multi_result) override;
   void SubmitFrame(int16_t frame_index,
                    base::TimeDelta time_waited) override;
   void SubmitFrameDrawnIntoTexture(

@@ -4,6 +4,8 @@
 
 #include "components/browser_apis/bookmarks/bookmarks_service_impl.h"
 
+#include <memory>
+
 #include "base/location.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
@@ -11,7 +13,11 @@
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
+#include "components/bookmarks/browser/scoped_group_bookmark_actions.h"
 #include "components/bookmarks/common/bookmark_metrics.h"
+#include "components/bookmarks/managed/managed_bookmark_service.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 
 namespace bookmarks_api {
 
@@ -37,10 +43,15 @@ mojo_base::mojom::ErrorPtr MakeError(mojo_base::mojom::Code code,
 }  // namespace
 
 BookmarksServiceImpl::BookmarksServiceImpl(
-    bookmarks::BookmarkModel* bookmark_model)
-    : bookmark_model_(bookmark_model), finder_(bookmark_model) {
+    bookmarks::BookmarkModel* bookmark_model,
+    bookmarks::ManagedBookmarkService* managed_bookmark_service)
+    : bookmark_model_(bookmark_model),
+      managed_bookmark_service_(managed_bookmark_service),
+      finder_(bookmark_model) {
   CHECK(bookmark_model_);
   CHECK(bookmark_model_->loaded());
+  translator_ = std::make_unique<BookmarkEventTranslator>(
+      bookmark_model_, managed_bookmark_service_, this);
 }
 
 BookmarksServiceImpl::~BookmarksServiceImpl() = default;
@@ -52,7 +63,15 @@ void BookmarksServiceImpl::Accept(
 
 mojom::BookmarksService::GetBookmarksResult
 BookmarksServiceImpl::GetBookmarks() {
-  return ConvertNode(bookmark_model_->root_node());
+  auto snapshot = mojom::BookmarksSnapshot::New();
+  snapshot->root = ConvertRootNode(bookmark_model_->root_node());
+
+  mojo::AssociatedRemote<mojom::BookmarksObserver> stream;
+  auto pending_receiver = stream.BindNewEndpointAndPassReceiver();
+  observers_.Add(std::move(stream));
+  snapshot->stream = std::move(pending_receiver);
+
+  return snapshot;
 }
 
 mojom::BookmarksService::GetBookmarkResult BookmarksServiceImpl::GetBookmark(
@@ -65,27 +84,14 @@ mojom::BookmarksService::GetBookmarkResult BookmarksServiceImpl::GetBookmark(
 
 mojom::BookmarkNodePtr BookmarksServiceImpl::ConvertNode(
     const bookmarks::BookmarkNode* node) {
-  switch (node->type()) {
-    case bookmarks::BookmarkNode::URL: {
-      auto url_node = mojom::Url::New();
-      url_node->id = node->uuid();
-      url_node->title = base::UTF16ToUTF8(node->GetTitle());
-      url_node->url = node->url();
-      return mojom::BookmarkNode::NewUrl(std::move(url_node));
-    }
-    case bookmarks::BookmarkNode::FOLDER:
-    case bookmarks::BookmarkNode::BOOKMARK_BAR:
-    case bookmarks::BookmarkNode::OTHER_NODE:
-    case bookmarks::BookmarkNode::MOBILE: {
-      auto folder_node = mojom::Folder::New();
-      folder_node->id = node->uuid();
-      folder_node->title = base::UTF16ToUTF8(node->GetTitle());
-      for (const auto& child : node->children()) {
-        folder_node->children.push_back(ConvertNode(child.get()));
-      }
-      return mojom::BookmarkNode::NewFolder(std::move(folder_node));
-    }
-  }
+  return BookmarkEventTranslator::ConvertNode(bookmark_model_,
+                                              managed_bookmark_service_, node);
+}
+
+mojom::RootNodePtr BookmarksServiceImpl::ConvertRootNode(
+    const bookmarks::BookmarkNode* node) {
+  return BookmarkEventTranslator::ConvertRootNode(
+      bookmark_model_, managed_bookmark_service_, node);
 }
 
 mojom::BookmarksService::CreateBookmarkNodeResult
@@ -231,8 +237,10 @@ BookmarksServiceImpl::UpdateBookmarkNode(mojom::BookmarkNodePtr node) {
   }
 }
 
-mojom::BookmarksService::DeleteBookmarkNodeResult
-BookmarksServiceImpl::DeleteBookmarkNode(const base::Uuid& id) {
+mojom::BookmarksService::MoveBookmarkNodeResult
+BookmarksServiceImpl::MoveBookmarkNode(const base::Uuid& id,
+                                       const base::Uuid& new_parent_id,
+                                       std::optional<int32_t> index) {
   ASSIGN_OR_RETURN(
       const bookmarks::BookmarkNode* node, finder_.FindNodeByUuid(id),
       &MakeError, mojo_base::mojom::Code::kNotFound, "Bookmark node not found");
@@ -240,13 +248,77 @@ BookmarksServiceImpl::DeleteBookmarkNode(const base::Uuid& id) {
   if (bookmark_model_->is_permanent_node(node)) {
     return base::unexpected(
         mojo_base::mojom::Error::New(mojo_base::mojom::Code::kInvalidArgument,
-                                     "Cannot delete permanent node"));
+                                     "Cannot move permanent node"));
   }
 
-  bookmark_model_->Remove(node, bookmarks::metrics::BookmarkEditSource::kUser,
-                          FROM_HERE);
+  ASSIGN_OR_RETURN(const bookmarks::BookmarkNode* new_parent,
+                   finder_.FindNodeByUuid(new_parent_id), &MakeError,
+                   mojo_base::mojom::Code::kNotFound,
+                   "New parent folder not found");
+
+  if (!new_parent->is_folder()) {
+    return base::unexpected(
+        mojo_base::mojom::Error::New(mojo_base::mojom::Code::kInvalidArgument,
+                                     "New parent node is not a folder"));
+  }
+
+  size_t target_index;
+  if (index.has_value()) {
+    if (index.value() < 0 ||
+        static_cast<size_t>(index.value()) > new_parent->children().size()) {
+      return base::unexpected(mojo_base::mojom::Error::New(
+          mojo_base::mojom::Code::kInvalidArgument, "Index out of range"));
+    }
+    target_index = static_cast<size_t>(index.value());
+  } else {
+    target_index = new_parent->children().size();
+  }
+
+  bookmark_model_->Move(node, new_parent, target_index);
 
   return std::monostate();
+}
+
+mojom::BookmarksService::DeleteBookmarkNodesResult
+BookmarksServiceImpl::DeleteBookmarkNodes(const std::vector<base::Uuid>& ids) {
+  std::vector<const bookmarks::BookmarkNode*> nodes_to_remove;
+  for (const auto& id : ids) {
+    ASSIGN_OR_RETURN(const bookmarks::BookmarkNode* node,
+                     finder_.FindNodeByUuid(id), &MakeError,
+                     mojo_base::mojom::Code::kNotFound,
+                     "Bookmark node not found");
+
+    if (bookmark_model_->is_permanent_node(node)) {
+      return base::unexpected(
+          mojo_base::mojom::Error::New(mojo_base::mojom::Code::kInvalidArgument,
+                                       "Cannot delete permanent node"));
+    }
+    nodes_to_remove.push_back(node);
+  }
+
+  bookmarks::ScopedGroupBookmarkActions group_deletes(bookmark_model_);
+  for (const auto* node : nodes_to_remove) {
+    bookmark_model_->Remove(node, bookmarks::metrics::BookmarkEditSource::kUser,
+                            FROM_HERE);
+  }
+
+  return std::monostate();
+}
+
+void BookmarksServiceImpl::OnBookmarkEvents(
+    const std::vector<mojom::BookmarksEventPtr>& events) {
+  BroadcastEvents(events);
+}
+
+void BookmarksServiceImpl::BroadcastEvents(
+    const std::vector<mojom::BookmarksEventPtr>& events) {
+  for (auto& observer : observers_) {
+    std::vector<mojom::BookmarksEventPtr> copy;
+    for (const auto& event : events) {
+      copy.push_back(event.Clone());
+    }
+    observer->OnBookmarksEvents(std::move(copy));
+  }
 }
 
 }  // namespace bookmarks_api

@@ -100,7 +100,7 @@ ToolbarController::PopOutHandler::~PopOutHandler() = default;
 
 void ToolbarController::PopOutHandler::OnElementShown(
     ui::TrackedElement* element) {
-  controller_->PopOut(identifier_);
+  controller_->PopOut(identifier_, /*show_synchronously=*/false);
 }
 
 void ToolbarController::PopOutHandler::OnElementHidden(
@@ -214,16 +214,10 @@ ToolbarController::ToolbarController(
         overflow_id);
   }
 
-  // Adjust overflow order of WebUI toolbar. It doesn't have an entry in
-  // `responsive_elements` because it potentially adds multiple elements, so has
-  // to be handled separately.
-  auto* const web_ui_toolbar_element = FindToolbarElementWithId(
-      toolbar_container_view_, kWebUIToolbarElementIdentifier);
-  if (web_ui_toolbar_element) {
-    views::FlexSpecification flex_spec =
-        web_ui_toolbar_element->GetProperty(views::kFlexBehaviorKey)
-            ->WithOrder(id_to_order_map.at(kWebUIToolbarElementIdentifier));
-    web_ui_toolbar_element->SetProperty(views::kFlexBehaviorKey, flex_spec);
+  const auto it = id_to_order_map.find(kWebUIToolbarElementIdentifier);
+  // There may be no `kWebUIToolbarElementIdentifier` entry in unit tests.
+  if (it != id_to_order_map.end()) {
+    webui_toolbar_button_flex_order_ = it->second;
   }
 
   responsive_elements_ = GetResponsiveElementsWithOrderedActions();
@@ -237,7 +231,7 @@ ToolbarController::~ToolbarController() {
 
 std::vector<ToolbarController::ResponsiveElementInfo>
 ToolbarController::GetDefaultResponsiveElements(Browser* browser) {
-  bool is_incognito = browser->profile()->IsIncognitoProfile();
+  bool is_incognito = browser->GetProfile()->IsIncognitoProfile();
   // TODO(crbug.com/40912482): Fill in observed identifier.
   // Order matters because it should match overflow menu order top to bottom.
   std::vector<ToolbarController::ResponsiveElementInfo> elements = {
@@ -264,7 +258,8 @@ ToolbarController::GetDefaultResponsiveElements(Browser* browser) {
               IDS_OVERFLOW_MENU_ITEM_TEXT_SPLIT_VIEW,
               &(features::IsRoundedIconsEnabled() ? kSplitSceneIcon
                                                   : kSplitSceneOldIcon),
-              kToolbarSplitTabsToolbarButtonElementId},
+              kToolbarSplitTabsToolbarButtonElementId,
+              kToolbarSplitTabsMenuElementId},
           /*is_section_end=*/true),
       ToolbarController::ResponsiveElementInfo(
           ToolbarController::ElementIdInfo{
@@ -283,7 +278,7 @@ ToolbarController::GetDefaultResponsiveElements(Browser* browser) {
     auto* root_item = browser_actions->root_action_item();
     if (root_item) {
       PinnedToolbarActionsModel* const pinned_actions_model =
-          PinnedToolbarActionsModel::Get(browser->profile());
+          PinnedToolbarActionsModel::Get(browser->GetProfile());
       for (const auto& item : root_item->GetChildren().children()) {
         auto id = item->GetActionId();
         // Add an item if it is pinnable and/or pinned. The tab search item may
@@ -352,10 +347,12 @@ std::vector<ui::ElementIdentifier>
 ToolbarController::GetDefaultOverflowOrder() {
   std::vector<ui::ElementIdentifier> order = {
       kToolbarMediaButtonElementId, kToolbarBatterySaverButtonElementId,
-      kToolbarHomeButtonElementId, kToolbarHomeButtonElementId,
-      // The WebUIToolbarWebView is between the home and forward button in
-      // overflow order, since it can include one or both of them, and hides
-      // them on overflow.
+      kToolbarHomeButtonElementId,
+      // `kWebUIToolbarElementIdentifier` is a placeholder element representing
+      // the order it uses for both the home and forward buttons, if it's
+      // displaying them. Using a value in the middle of the two means that it
+      // uses the correct relative order, even when only one of the two buttons
+      // is being handled by the WebUI toolbar.
       kWebUIToolbarElementIdentifier, kToolbarForwardButtonElementId,
       kToolbarAvatarButtonElementId, kToolbarSplitTabsToolbarButtonElementId,
       kPinnedToolbarActionShowSidePanelContextualTasksElementId};
@@ -378,7 +375,9 @@ std::string ToolbarController::GetActionNameFromElementIdentifier(
            {kToolbarBatterySaverButtonElementId, "BatterySaverButton"},
            {kExtensionsMenuButtonElementId, "ExtensionsMenuButton"},
            {kToolbarForwardButtonElementId, "ForwardButton"},
+           {kActionForward, "ForwardButton"},
            {kToolbarHomeButtonElementId, "HomeButton"},
+           {kActionHome, "HomeButton"},
            {kToolbarMediaButtonElementId, "MediaButton"},
            {kToolbarSidePanelButtonElementId, "SidePanelButton"},
            {kToolbarSplitTabsToolbarButtonElementId, "SplitTabs"},
@@ -394,12 +393,16 @@ std::string ToolbarController::GetActionNameFromElementIdentifier(
            {kActionQrCodeGenerator, "PinnedQrCodeGeneratorButton"},
            {kActionRouteMedia, "PinnedCastButton"},
            {kActionSendTabToSelf, "PinnedSendTabToSelfButton"},
+           {kActionShowAddresses, "PinnedShowAddressesBubbleOrPageButton"},
            {kActionShowAddressesBubbleOrPage,
             "PinnedShowAddressesBubbleOrPageButton"},
            {kActionShowChromeLabs, "PinnedShowChromeLabsButton"},
            {kActionShowDownloads, "PinnedShowDownloadsButton"},
+           {kActionShowPasswordManager,
+            "PinnedShowPasswordsBubbleOrPageButton"},
            {kActionShowPasswordsBubbleOrPage,
             "PinnedShowPasswordsBubbleOrPageButton"},
+           {kActionShowPaymentMethods, "PinnedShowPaymentsBubbleOrPageButton"},
            {kActionShowPaymentsBubbleOrPage,
             "PinnedShowPaymentsBubbleOrPageButton"},
            {kActionShowTranslate, "PinnedShowTranslateButton"},
@@ -429,7 +432,8 @@ std::string ToolbarController::GetActionNameFromElementIdentifier(
                              it->second});
 }
 
-bool ToolbarController::PopOut(ui::ElementIdentifier identifier) {
+bool ToolbarController::PopOut(ui::ElementIdentifier identifier,
+                               bool show_synchronously) {
   auto* const element =
       FindToolbarElementWithId(toolbar_container_view_, identifier);
 
@@ -470,6 +474,9 @@ bool ToolbarController::PopOut(ui::ElementIdentifier identifier) {
   }
 
   element->parent()->InvalidateLayout();
+  if (show_synchronously) {
+    toolbar_container_view_->DeprecatedLayoutImmediately();
+  }
   return true;
 }
 

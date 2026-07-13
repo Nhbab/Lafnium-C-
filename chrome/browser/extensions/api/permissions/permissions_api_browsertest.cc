@@ -8,11 +8,11 @@
 #include <optional>
 #include <string>
 
+#include "base/auto_reset.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
@@ -38,7 +38,6 @@
 #include "extensions/browser/test_extension_registry_observer.h"
 #include "extensions/buildflags/buildflags.h"
 #include "extensions/common/extension_builder.h"
-#include "extensions/common/extension_features.h"
 #include "extensions/common/manifest_handlers/permissions_parser.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/test/test_extension_dir.h"
@@ -761,10 +760,7 @@ IN_PROC_BROWSER_TEST_F(PermissionsAPIUnitTest, RequestingFilePermissions) {
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 class PermissionsAPIHostAccessRequestsUnitTest : public PermissionsAPIUnitTest {
  public:
-  PermissionsAPIHostAccessRequestsUnitTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        extensions_features::kApiPermissionsHostAccessRequests);
-  }
+  PermissionsAPIHostAccessRequestsUnitTest() = default;
   ~PermissionsAPIHostAccessRequestsUnitTest() override = default;
   PermissionsAPIHostAccessRequestsUnitTest(
       const PermissionsAPIHostAccessRequestsUnitTest&) = delete;
@@ -773,7 +769,8 @@ class PermissionsAPIHostAccessRequestsUnitTest : public PermissionsAPIUnitTest {
 
   void SetUpOnMainThread() override {
     PermissionsAPIUnitTest::SetUpOnMainThread();
-    HostAccessRequestsHelper::SetCooldownForTesting(base::TimeDelta());
+    cooldown_reset_.emplace(
+        HostAccessRequestsHelper::SetCooldownForTesting(base::TimeDelta()));
     host_resolver()->AddRule("*", "127.0.0.1");
     ASSERT_TRUE(embedded_test_server()->Start());
   }
@@ -807,7 +804,7 @@ class PermissionsAPIHostAccessRequestsUnitTest : public PermissionsAPIUnitTest {
   }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  std::optional<base::AutoReset<base::TimeDelta>> cooldown_reset_;
 };
 
 // Test extension can add a host access request for a site it has host
@@ -1606,7 +1603,8 @@ IN_PROC_BROWSER_TEST_F(PermissionsAPIHostAccessRequestsUnitTest,
   auto* permissions_manager = PermissionsManager::Get(profile());
 
   // Set cooldown to 200ms.
-  HostAccessRequestsHelper::SetCooldownForTesting(base::Milliseconds(200));
+  auto cooldown_reset =
+      HostAccessRequestsHelper::SetCooldownForTesting(base::Milliseconds(200));
 
   // Add request. Should succeed.
   {

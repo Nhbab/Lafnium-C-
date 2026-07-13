@@ -10,6 +10,7 @@
 
 #include "base/containers/circular_deque.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "ui/events/base_event_utils.h"
@@ -85,7 +86,7 @@ class OccludedWidgetInputProtectorTestBase : public WidgetTest {
     return OccludedWidgetInputProtector::GetInstance()->occlusion_history_;
   }
 
-  const std::set<Widget*>& resizing_widgets() {
+  const std::set<raw_ptr<Widget>>& resizing_widgets() {
     return OccludedWidgetInputProtector::GetInstance()->resizing_widgets_;
   }
 
@@ -110,10 +111,7 @@ class OccludedWidgetInputProtectorTestBase : public WidgetTest {
   }
 
   void TearDown() override {
-    // Ensure all occlusion records expire and are purged before the next test
-    // to maintain isolation.
-    FastForwardBy(GetDoubleClickInterval() + base::Milliseconds(1));
-    PruneCachedOcclusionHistory();
+    OccludedWidgetInputProtector::GetInstance()->ClearForTesting();
     WidgetTest::TearDown();
   }
 
@@ -452,13 +450,7 @@ TEST_F(OccludedWidgetInputProtectorTest, ShouldBlockEvent_AnchoredWidget) {
       mouse_event, *view));
 }
 
-// Flaky on Mac: https://crbug.com/523294178.
-#if BUILDFLAG(IS_MAC)
-#define MAYBE_HistoricalOcclusion_Hide DISABLED_HistoricalOcclusion_Hide
-#else
-#define MAYBE_HistoricalOcclusion_Hide HistoricalOcclusion_Hide
-#endif
-TEST_F(OccludedWidgetInputProtectorTest, MAYBE_HistoricalOcclusion_Hide) {
+TEST_F(OccludedWidgetInputProtectorTest, HistoricalOcclusion_Hide) {
   auto aot_widget = CreateWidgetWithZOrder(ui::ZOrderLevel::kFloatingWindow);
   const gfx::Rect aot_bounds(10, 10, 100, 100);
   aot_widget->SetBounds(aot_bounds);
@@ -471,8 +463,9 @@ TEST_F(OccludedWidgetInputProtectorTest, MAYBE_HistoricalOcclusion_Hide) {
   WidgetVisibleWaiter(normal_widget.get()).Wait();
 
   View* view = normal_widget->GetContentsView();
-  ui::MouseEvent event =
-      CreateMouseEventAtScreenPoint(view, aot_bounds.CenterPoint());
+  ui::MouseEvent event = CreateMouseEventAtScreenPoint(
+      view,
+      normal_widget->GetNonDecoratedClientAreaBoundsInScreen().CenterPoint());
   EXPECT_TRUE(OccludedWidgetInputProtector::GetInstance()->ShouldBlockEvent(
       event, *view));
 
@@ -486,13 +479,7 @@ TEST_F(OccludedWidgetInputProtectorTest, MAYBE_HistoricalOcclusion_Hide) {
       event, *view));
 }
 
-// Flaky on Mac: https://crbug.com/523294178.
-#if BUILDFLAG(IS_MAC)
-#define MAYBE_HistoricalOcclusion_Close DISABLED_HistoricalOcclusion_Close
-#else
-#define MAYBE_HistoricalOcclusion_Close HistoricalOcclusion_Close
-#endif
-TEST_F(OccludedWidgetInputProtectorTest, MAYBE_HistoricalOcclusion_Close) {
+TEST_F(OccludedWidgetInputProtectorTest, HistoricalOcclusion_Close) {
   auto aot_widget = CreateWidgetWithZOrder(ui::ZOrderLevel::kFloatingWindow);
   const gfx::Rect aot_bounds(10, 10, 100, 100);
   aot_widget->SetBounds(aot_bounds);
@@ -505,8 +492,9 @@ TEST_F(OccludedWidgetInputProtectorTest, MAYBE_HistoricalOcclusion_Close) {
   WidgetVisibleWaiter(normal_widget.get()).Wait();
 
   View* view = normal_widget->GetContentsView();
-  ui::MouseEvent event =
-      CreateMouseEventAtScreenPoint(view, aot_bounds.CenterPoint());
+  ui::MouseEvent event = CreateMouseEventAtScreenPoint(
+      view,
+      normal_widget->GetNonDecoratedClientAreaBoundsInScreen().CenterPoint());
   EXPECT_TRUE(OccludedWidgetInputProtector::GetInstance()->ShouldBlockEvent(
       event, *view));
   aot_widget.reset();
@@ -517,14 +505,7 @@ TEST_F(OccludedWidgetInputProtectorTest, MAYBE_HistoricalOcclusion_Close) {
       event, *view));
 }
 
-// Flaky on Mac: https://crbug.com/523294178.
-#if BUILDFLAG(IS_MAC)
-#define MAYBE_HistoricalOcclusion_Unregister \
-  DISABLED_HistoricalOcclusion_Unregister
-#else
-#define MAYBE_HistoricalOcclusion_Unregister HistoricalOcclusion_Unregister
-#endif
-TEST_F(OccludedWidgetInputProtectorTest, MAYBE_HistoricalOcclusion_Unregister) {
+TEST_F(OccludedWidgetInputProtectorTest, HistoricalOcclusion_Unregister) {
   auto aot_widget = CreateWidgetWithZOrder(ui::ZOrderLevel::kFloatingWindow);
   const gfx::Rect aot_bounds(10, 10, 100, 100);
   aot_widget->SetBounds(aot_bounds);
@@ -537,8 +518,9 @@ TEST_F(OccludedWidgetInputProtectorTest, MAYBE_HistoricalOcclusion_Unregister) {
   WidgetVisibleWaiter(normal_widget.get()).Wait();
 
   View* view = normal_widget->GetContentsView();
-  ui::MouseEvent event =
-      CreateMouseEventAtScreenPoint(view, aot_bounds.CenterPoint());
+  ui::MouseEvent event = CreateMouseEventAtScreenPoint(
+      view,
+      normal_widget->GetNonDecoratedClientAreaBoundsInScreen().CenterPoint());
   EXPECT_TRUE(OccludedWidgetInputProtector::GetInstance()->ShouldBlockEvent(
       event, *view));
   aot_widget->SetZOrderLevel(ui::ZOrderLevel::kNormal);
@@ -567,8 +549,9 @@ TEST_F(OccludedWidgetInputProtectorTest, HistoricalOcclusion_Move) {
   aot_widget->SetBounds(new_bounds);
   waiter.Wait();
 
-  ui::MouseEvent event_at_new =
-      CreateMouseEventAtScreenPoint(view, new_bounds.CenterPoint());
+  ui::MouseEvent event_at_new = CreateMouseEventAtScreenPoint(
+      view,
+      normal_widget->GetNonDecoratedClientAreaBoundsInScreen().CenterPoint());
   EXPECT_TRUE(OccludedWidgetInputProtector::GetInstance()->ShouldBlockEvent(
       event_at_new, *view));
 

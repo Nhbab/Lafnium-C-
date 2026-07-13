@@ -27,7 +27,6 @@ import org.chromium.build.annotations.NullMarked;
 import org.chromium.build.annotations.Nullable;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.compositor.overlays.strip.StripLayoutGroupTitle;
-import org.chromium.chrome.browser.compositor.overlays.strip.StripLayoutTrailingButtonsCoordinator;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.components.tab_groups.TabGroupColorId;
@@ -78,11 +77,12 @@ public class TitleBitmapFactory {
 
         // Tab text properties
         mTabTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        @ColorInt int incognitoTextColor = 0;
         if (mIncognito) {
-            int incognitoTabTextColor =
+            incognitoTextColor =
                     context.getColorStateList(R.color.compositor_tab_title_bar_text_incognito)
                             .getDefaultColor();
-            mTabTextPaint.setColor(incognitoTabTextColor);
+            mTabTextPaint.setColor(incognitoTextColor);
         }
         StyleUtils.applyTextAppearanceToTextPaint(
                 context,
@@ -120,19 +120,20 @@ public class TitleBitmapFactory {
 
         // Button text properties.
         mButtonTextPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        if (mIncognito) {
+            mButtonTextPaint.setColor(incognitoTextColor);
+        }
         StyleUtils.applyTextAppearanceToTextPaint(
                 context,
                 mButtonTextPaint,
                 R.style.TextAppearance_TextSmallThick_Primary,
                 /* applyFontFamily= */ true,
                 /* applyTextSize= */ true,
-                /* applyTextColor= */ true);
+                !mIncognito);
         mButtonTextPaint.setFakeBoldText(fakeBoldText);
         mButtonTextPaint.density = density;
         float maxButtonTextHeight =
-                tabStripHeightPx
-                        - (StripLayoutTrailingButtonsCoordinator.GLIC_BUTTON_MARGIN_HEIGHT_DP
-                                * density);
+                tabStripHeightPx - res.getDimension(R.dimen.tab_strip_glic_button_margin_height);
         enforceMaxTextHeight(mButtonTextPaint, maxButtonTextHeight);
 
         FontMetrics buttonTextFontMetrics = mButtonTextPaint.getFontMetrics();

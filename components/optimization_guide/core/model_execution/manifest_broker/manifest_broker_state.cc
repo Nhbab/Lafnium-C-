@@ -19,9 +19,11 @@
 #include "base/trace_event/trace_event.h"
 #include "components/optimization_guide/core/model_execution/manifest_broker/manifest_solution_factory.h"
 #include "components/optimization_guide/core/model_execution/manifest_broker/manifest_validation.h"
+#include "components/optimization_guide/core/model_execution/model_execution_prefs.h"
 #include "components/optimization_guide/core/model_execution/on_device_features.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
 #include "components/optimization_guide/public/mojom/model_broker.mojom.h"
+#include "components/prefs/pref_service.h"
 
 namespace optimization_guide {
 
@@ -204,7 +206,10 @@ void ManifestBrokerState::OnManifestUpdated() {
       *manifest_monitor_.manifest(), model_broker_impl_, usage_tracker_,
       service_client_, access_controller_,
       base::BindOnce(&ManifestBrokerState::OnInitComplete,
-                     weak_ptr_factory_.GetWeakPtr()));
+                     weak_ptr_factory_.GetWeakPtr()),
+      base::BindRepeating(
+          &ManifestBrokerState::NotifyObserversOfBrokerStateChange,
+          weak_ptr_factory_.GetWeakPtr()));
   if (!asset_manager_) {
     asset_manager_ = std::make_unique<ManifestAssetManager>(
         *local_state_, usage_tracker_, *delegate_, component_update_service_,
@@ -212,6 +217,7 @@ void ManifestBrokerState::OnManifestUpdated() {
   } else {
     asset_manager_->UpdateSolutionFactory(std::move(factory));
   }
+  NotifyObserversOfBrokerStateChange();
 }
 
 void ManifestBrokerState::OnInitComplete() {
@@ -230,6 +236,7 @@ void ManifestBrokerState::OnInitComplete() {
           category_config.validations());
     }
   }
+  NotifyObserversOfBrokerStateChange();
 }
 
 on_device_model::Capabilities
@@ -287,6 +294,11 @@ void ManifestBrokerState::GetStateInfo(
   base::Extend(result->properties, manifest_monitor_.GetBrokerProperties());
   result->use_cases = model_broker_impl_.GetBrokerUseCaseInfo();
 
+  result->model_crash_count = local_state_->GetInteger(
+      model_execution::prefs::localstate::kOnDeviceModelCrashCount);
+  result->max_model_crash_count =
+      optimization_guide::features::GetOnDeviceModelCrashCountBeforeDisable();
+
   std::vector<std::pair<mojom::BrokerModelInfoPtr, base::FilePath>>
       models_with_paths;
   if (asset_manager_) {
@@ -320,6 +332,22 @@ void ManifestBrokerState::SetUseCaseRequested(const std::string& use_case,
 
 void ManifestBrokerState::UninstallModels() {
   asset_manager_->UninstallModels();
+}
+
+void ManifestBrokerState::ResetModelCrashCount() {
+  local_state_->SetInteger(
+      model_execution::prefs::localstate::kOnDeviceModelCrashCount, 0);
+}
+
+void ManifestBrokerState::AddObserver(
+    mojo::PendingRemote<mojom::ModelBrokerDebugObserver> observer) {
+  debug_observers_.Add(std::move(observer));
+}
+
+void ManifestBrokerState::NotifyObserversOfBrokerStateChange() {
+  for (auto& observer : debug_observers_) {
+    observer->OnBrokerStateChanged();
+  }
 }
 
 }  // namespace optimization_guide

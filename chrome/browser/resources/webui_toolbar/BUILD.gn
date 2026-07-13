@@ -11,9 +11,6 @@ build_webui("build") {
   grd_prefix = "webui_toolbar"
 
   static_files = [
-    "browser_controls_icons/home_20.svg",
-    "browser_controls_icons/home_24.svg",
-
     "rhs_icons/ads_chrome_refresh.svg",
     "rhs_icons/ads_off_chrome_refresh.svg",
     "rhs_icons/code_chrome_refresh.svg",
@@ -75,6 +72,8 @@ build_webui("build") {
 
   ts_files = [
     "app.html.ts",
+    "app_menu_button.html.ts",
+    "app_menu_button.ts",
     "app.ts",
     "avatar_button.html.ts",
     "avatar_button.ts",
@@ -88,6 +87,14 @@ build_webui("build") {
     "content_setting_icon.ts",
     "content_settings_icons.html.ts",
     "content_settings_icons.ts",
+    "extension.html.ts",
+    "extension.ts",
+    "extensions.html.ts",
+    "extensions.ts",
+    "page_action_icon.html.ts",
+    "page_action_icon.ts",
+    "page_action_icons.html.ts",
+    "page_action_icons.ts",
     "home_button.html.ts",
     "home_button.ts",
     "icons.html.ts",
@@ -113,9 +120,10 @@ build_webui("build") {
     "selected_keyword.html.ts",
     "split_tabs_button.html.ts",
     "split_tabs_button.ts",
-    "split_tabs_button_icons.html.ts",
     "timer_helper.ts",
     "toolbar_button.ts",
+    "toolbar_chip_button.html.ts",
+    "toolbar_chip_button.ts",
     "toolbar_divider.html.ts",
     "toolbar_divider.ts",
   ]
@@ -126,9 +134,13 @@ build_webui("build") {
 
   css_files = [
     "app.css",
+    "app_menu_button.css",
     "avatar_button.css",
     "content_setting_icon.css",
     "content_settings_icons.css",
+    "extensions.css",
+    "page_action_icon.css",
+    "page_action_icons.css",
     "home_button.css",
     "location_bar.css",
     "location_icon.css",
@@ -139,6 +151,7 @@ build_webui("build") {
     "reload_button.css",
     "selected_keyword.css",
     "toolbar_button.css",
+    "toolbar_chip_button.css",
     "toolbar_divider.css",
   ]
 

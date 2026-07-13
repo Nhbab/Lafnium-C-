@@ -98,6 +98,9 @@ class MockSearchboxPage : public searchbox::mojom::Page {
               (searchbox::mojom::TabInfoPtr));
   MOCK_METHOD(void, UpdateLensSearchEligibility, (bool eligible), (override));
   MOCK_METHOD(void, UpdateAimPopupEligibility, (bool eligible), (override));
+#if !BUILDFLAG(IS_ANDROID)
+  MOCK_METHOD(void, UpdateSmartTabSharingActive, (bool active), (override));
+#endif
   MOCK_METHOD(void, UpdateContentSharingPolicy, (bool enabled), (override));
   MOCK_METHOD(void,
               OnPermissionPromptChanged,
@@ -129,6 +132,7 @@ class MockOmniboxPopupPage : public omnibox_popup::mojom::Page {
               SetInputState,
               (omnibox_popup::mojom::OmniboxInputStatePtr state),
               (override));
+  MOCK_METHOD(void, SetFocus, (bool is_focused), (override));
 };
 #endif
 
@@ -155,7 +159,7 @@ class MockOmniboxEditModel : public OmniboxEditModel {
 
   // OmniboxEditModel:
   MOCK_METHOD(void, SetUserText, (const std::u16string&), (override));
-  MOCK_METHOD(void, OpenAiMode, (bool, bool), (override));
+  MOCK_METHOD(void, OpenAiMode, (AimActivation), (override));
 };
 
 class MockLensSearchboxClient : public LensSearchboxClient {

@@ -56,6 +56,7 @@ enum Attributes {
           ];
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 matches: matches,
               }));
           await microtasksFinished();
@@ -88,6 +89,7 @@ enum Attributes {
           ];
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 matches: matches,
               }));
           await microtasksFinished();
@@ -132,6 +134,7 @@ enum Attributes {
           ];
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 matches: matches,
               }));
           await microtasksFinished();
@@ -194,6 +197,7 @@ enum Attributes {
               ];
               testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
                   createAutocompleteResultForTesting({
+                    queryId: testProxy.element.activeQueryId,
                     matches: matches,
                   }));
               await microtasksFinished();
@@ -240,6 +244,7 @@ enum Attributes {
               ];
               testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
                   createAutocompleteResultForTesting({
+                    queryId: testProxy.element.activeQueryId,
                     matches: matches,
                     input: 'Test',
                   }));
@@ -291,6 +296,7 @@ enum Attributes {
               ];
               testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
                   createAutocompleteResultForTesting({
+                    queryId: testProxy.element.activeQueryId,
                     matches: matches,
                     input: 'Test',
                   }));
@@ -318,6 +324,7 @@ enum Attributes {
           ];
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 matches: matches,
               }));
           assertTrue(await areMatchesShowing(
@@ -342,6 +349,7 @@ enum Attributes {
           ];
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 input: 'awesome',
                 matches: typedMatches,
               }));
@@ -386,6 +394,7 @@ enum Attributes {
           ];
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 matches: matches,
               }));
           assertTrue(await areMatchesShowing(
@@ -420,6 +429,7 @@ enum Attributes {
               ];
               testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
                   createAutocompleteResultForTesting({
+                    queryId: testProxy.element.activeQueryId,
                     input: '',
                     matches: matches,
                   }));
@@ -448,6 +458,7 @@ enum Attributes {
               // Simulate stale Mojo update arriving after click
               testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
                   createAutocompleteResultForTesting({
+                    queryId: testProxy.element.activeQueryId,
                     input: '',
                     matches: matches,
                   }));
@@ -484,7 +495,8 @@ enum Attributes {
             createSearchMatchForTesting({fillIntoEdit: 'hello world 2'}),
           ];
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
-              createAutocompleteResultForTesting({matches}));
+              createAutocompleteResultForTesting(
+                  {queryId: testProxy.element.activeQueryId, matches}));
           await microtasksFinished();
           assertTrue(await areMatchesShowing(
               testProxy.element, testProxy.searchboxCallbackRouterRemote));
@@ -550,6 +562,7 @@ enum Attributes {
           ];
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 matches: matches,
                 input: 'Test',
               }));
@@ -632,6 +645,7 @@ enum Attributes {
           ];
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 matches: matches,
               }));
 
@@ -723,6 +737,7 @@ enum Attributes {
               ];
               testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
                   createAutocompleteResultForTesting({
+                    queryId: testProxy.element.activeQueryId,
                     matches: matches,
                   }));
 
@@ -809,6 +824,7 @@ enum Attributes {
               ];
               testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
                   createAutocompleteResultForTesting({
+                    queryId: testProxy.element.activeQueryId,
                     input: testProxy.element.getInputElement()
                                .inputElement.value.trimStart(),
                     matches,
@@ -845,6 +861,7 @@ enum Attributes {
               ];
               testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
                   createAutocompleteResultForTesting({
+                    queryId: testProxy.element.activeQueryId,
                     input: '',
                     matches: matches,
                   }));
@@ -901,6 +918,7 @@ enum Attributes {
               })];
               testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
                   createAutocompleteResultForTesting({
+                    queryId: testProxy.element.activeQueryId,
                     input: '',
                     matches: matches,
                   }));
@@ -924,6 +942,7 @@ enum Attributes {
           ];
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 input: '',
                 matches,
                 suggestionGroupsMap: {},
@@ -1010,6 +1029,7 @@ enum Attributes {
           testProxy.element.haveReceivedSynchronousAutocompleteResponse = true;
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 input: 'smart ',
                 matches: [],
                 smartComposeInlineHint: 'compose',
@@ -1024,7 +1044,9 @@ enum Attributes {
           await microtasksFinished();
           // Autocomplete queried once when composebox is opened.
           assertEquals(
-              testProxy.searchboxHandler.getCallCount('queryAutocomplete'), 1);
+              testProxy.searchboxHandler.getCallCount(
+                  'queryAutocompleteWithSuggestInventory'),
+              1);
 
           // Add input.
           testProxy.element.getInputElement().inputElement.value = 'smart ';
@@ -1033,11 +1055,14 @@ enum Attributes {
 
           // Autocomplete queried on input.
           assertEquals(
-              testProxy.searchboxHandler.getCallCount('queryAutocomplete'), 2);
+              testProxy.searchboxHandler.getCallCount(
+                  'queryAutocompleteWithSuggestInventory'),
+              2);
 
           testProxy.element.haveReceivedSynchronousAutocompleteResponse = true;
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 input: 'smart ',
                 matches: [],
                 smartComposeInlineHint: 'compose',
@@ -1061,7 +1086,9 @@ enum Attributes {
               testProxy.element.getInputElement().inputElement.value);
           // Autocomplete queried when smart compose accepted.
           assertEquals(
-              testProxy.searchboxHandler.getCallCount('queryAutocomplete'), 3);
+              testProxy.searchboxHandler.getCallCount(
+                  'queryAutocompleteWithSuggestInventory'),
+              3);
         });
 
         test('arrow up/down moves clears smart compose', async () => {
@@ -1081,6 +1108,7 @@ enum Attributes {
           testProxy.element.haveReceivedSynchronousAutocompleteResponse = true;
           testProxy.searchboxCallbackRouterRemote.autocompleteResultChanged(
               createAutocompleteResultForTesting({
+                queryId: testProxy.element.activeQueryId,
                 input: 'awesome',
                 matches: matches,
                 smartComposeInlineHint: 'compose',
@@ -1128,7 +1156,9 @@ enum Attributes {
 
           // Autocomplete should be queried when the composebox is created.
           assertEquals(
-              testProxy.searchboxHandler.getCallCount('queryAutocomplete'), 1);
+              testProxy.searchboxHandler.getCallCount(
+                  'queryAutocompleteWithSuggestInventory'),
+              1);
 
           // Restore.
           loadTimeData.overrideValues({composeboxShowZps: false});
@@ -1140,7 +1170,9 @@ enum Attributes {
 
           // Autocomplete should be queried when the composebox is created.
           assertEquals(
-              testProxy.searchboxHandler.getCallCount('queryAutocomplete'), 1);
+              testProxy.searchboxHandler.getCallCount(
+                  'queryAutocompleteWithSuggestInventory'),
+              1);
           assertEquals(
               testProxy.searchboxHandler.getCallCount('stopAutocomplete'), 0);
 
@@ -1150,7 +1182,9 @@ enum Attributes {
               new Event('input'));
           await microtasksFinished();
           assertEquals(
-              testProxy.searchboxHandler.getCallCount('queryAutocomplete'), 2);
+              testProxy.searchboxHandler.getCallCount(
+                  'queryAutocompleteWithSuggestInventory'),
+              2);
 
           // Deleting to empty input should stop autocomplete before querying it
           // again.
@@ -1162,7 +1196,9 @@ enum Attributes {
           assertEquals(
               testProxy.searchboxHandler.getCallCount('stopAutocomplete'), 1);
           assertEquals(
-              testProxy.searchboxHandler.getCallCount('queryAutocomplete'), 3);
+              testProxy.searchboxHandler.getCallCount(
+                  'queryAutocompleteWithSuggestInventory'),
+              3);
         });
       });
 
@@ -1183,7 +1219,8 @@ enum Attributes {
               // Set loadTimeData so that voice search does auto submit.
               loadTimeData.overrideValues({
                 composeboxShowZps:
-                    true,  // For predictable queryAutocomplete count.
+                    true,  // For predictable
+                           // queryAutocompleteWithSuggestInventory count.
               });
               createComposeboxElement(testProxy, {showVoiceSearch: true});
               await microtasksFinished();
@@ -1208,7 +1245,8 @@ enum Attributes {
               await microtasksFinished();
 
               assertEquals(
-                  testProxy.searchboxHandler.getCallCount('queryAutocomplete'),
+                  testProxy.searchboxHandler.getCallCount(
+                      'queryAutocompleteWithSuggestInventory'),
                   0);
               assertEquals(
                   testProxy.searchboxHandler.getCallCount('submitQuery'), 1);
@@ -1228,7 +1266,9 @@ suite('NewTabPageComposeboxAutocompleteContextTest', () => {
 
     // Autocomplete queried once on load.
     assertEquals(
-        testProxy.searchboxHandler.getCallCount('queryAutocomplete'), 1);
+        testProxy.searchboxHandler.getCallCount(
+            'queryAutocompleteWithSuggestInventory'),
+        1);
     testProxy.searchboxHandler.setPromiseResolveFor(
         ADD_TAB_CONTEXT_FN, {low: BigInt(1), high: BigInt(2)});
 
@@ -1257,7 +1297,9 @@ suite('NewTabPageComposeboxAutocompleteContextTest', () => {
     assertEquals(
         3, testProxy.searchboxHandler.getCallCount('stopAutocomplete'));
     assertEquals(
-        2, testProxy.searchboxHandler.getCallCount('queryAutocomplete'));
+        2,
+        testProxy.searchboxHandler.getCallCount(
+            'queryAutocompleteWithSuggestInventory'));
   });
 
   test(
@@ -1283,7 +1325,9 @@ suite('NewTabPageComposeboxAutocompleteContextTest', () => {
 
         // Autocomplete queried once on load.
         assertEquals(
-            1, testProxy.searchboxHandler.getCallCount('queryAutocomplete'));
+            1,
+            testProxy.searchboxHandler.getCallCount(
+                'queryAutocompleteWithSuggestInventory'));
 
         const tab = {
           tabId: 1,
@@ -1307,7 +1351,9 @@ suite('NewTabPageComposeboxAutocompleteContextTest', () => {
         // Autocomplete should NOT have been queried again when the chip was
         // added.
         assertEquals(
-            1, testProxy.searchboxHandler.getCallCount('queryAutocomplete'));
+            1,
+            testProxy.searchboxHandler.getCallCount(
+                'queryAutocompleteWithSuggestInventory'));
 
         // Add a file.
         const fileId = generateZeroId();
@@ -1346,7 +1392,9 @@ suite('NewTabPageComposeboxAutocompleteContextTest', () => {
         // Autocomplete should NOT be queried again when there is an autochip
         // remaining.
         assertEquals(
-            1, testProxy.searchboxHandler.getCallCount('queryAutocomplete'));
+            1,
+            testProxy.searchboxHandler.getCallCount(
+                'queryAutocompleteWithSuggestInventory'));
       });
 
   test('matches cleared when new autochip added', async () => {
@@ -1383,7 +1431,9 @@ suite('NewTabPageComposeboxAutocompleteContextTest', () => {
 
         // Autocomplete queried once on load.
         assertEquals(
-            testProxy.searchboxHandler.getCallCount('queryAutocomplete'), 1);
+            testProxy.searchboxHandler.getCallCount(
+                'queryAutocompleteWithSuggestInventory'),
+            1);
 
         // Remove autochip when none exists.
         testProxy.searchboxCallbackRouterRemote.updateAutoSuggestedTabContext(
@@ -1393,7 +1443,9 @@ suite('NewTabPageComposeboxAutocompleteContextTest', () => {
         // Autocomplete should not be queried again when there was no
         // autochip to start, and an update comes with a null tab.
         assertEquals(
-            testProxy.searchboxHandler.getCallCount('queryAutocomplete'), 1);
+            testProxy.searchboxHandler.getCallCount(
+                'queryAutocompleteWithSuggestInventory'),
+            1);
         assertEquals(
             testProxy.searchboxHandler.getCallCount('stopAutocomplete'), 0);
       });

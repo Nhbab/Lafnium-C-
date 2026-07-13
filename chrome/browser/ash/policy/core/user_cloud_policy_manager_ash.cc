@@ -36,6 +36,7 @@
 #include "chrome/browser/ash/policy/skyvault/local_files_cleanup.h"
 #include "chrome/browser/enterprise/reporting/report_scheduler_desktop.h"
 #include "chrome/browser/enterprise/reporting/reporting_delegate_factory_desktop.h"
+#include "chrome/browser/enterprise/reporting/saas_usage/saas_usage_reporting_delegate_factory_desktop.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/policy/cloud/user_fm_registration_token_uploader_factory.h"
@@ -45,6 +46,8 @@
 #include "components/enterprise/browser/reporting/real_time_report_controller.h"
 #include "components/enterprise/browser/reporting/report_generator.h"
 #include "components/enterprise/browser/reporting/report_scheduler.h"
+#include "components/enterprise/browser/reporting/reporting_features.h"
+#include "components/enterprise/browser/reporting/saas_usage/saas_usage_report_scheduler.h"
 #include "components/invalidation/invalidation_listener.h"
 #include "components/invalidation/profile_invalidation_provider.h"
 #include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
@@ -264,7 +267,8 @@ void UserCloudPolicyManagerAsh::ConnectManagementService(
   if (IsSkyVaultTTEnabled()) {
     // Local files should be deleted if required by policy.
     local_files_cleanup_ =
-        std::make_unique<local_user_files::LocalFilesCleanup>();
+        std::make_unique<local_user_files::LocalFilesCleanup>(
+            &local_state_.get());
   }
 }
 
@@ -277,7 +281,8 @@ void UserCloudPolicyManagerAsh::OnAccessTokenAvailable(
   access_token_ = access_token;
 
   if (!wildcard_username_.empty()) {
-    wildcard_login_checker_ = std::make_unique<WildcardLoginChecker>();
+    wildcard_login_checker_ =
+        std::make_unique<WildcardLoginChecker>(shared_url_loader_factory_);
     // Safe to set a callback with an unretained pointer because the
     // WildcardLoginChecker is owned by this object and won't invoke the
     // callback after we destroy it.
@@ -342,6 +347,7 @@ void UserCloudPolicyManagerAsh::Shutdown() {
   local_files_cleanup_.reset();
   app_install_event_log_uploader_.reset();
   report_scheduler_.reset();
+  saas_usage_report_scheduler_.reset();
   observed_cloud_policy_client_.Reset();
   observed_cloud_policy_service_.Reset();
   token_fetcher_.reset();
@@ -501,6 +507,11 @@ void UserCloudPolicyManagerAsh::OnUserProfileLoaded(
 void UserCloudPolicyManagerAsh::OnStoreLoaded(
     CloudPolicyStore* cloud_policy_store) {
   CloudPolicyManager::OnStoreLoaded(cloud_policy_store);
+
+  if (cloud_policy_store == extension_install_store()) {
+    // Extension Install policies do not affect affiliation.
+    return;
+  }
 
   em::PolicyData const* const policy_data = cloud_policy_store->policy();
 
@@ -764,6 +775,14 @@ void UserCloudPolicyManagerAsh::StartReportSchedulerIfReady(
 
   report_scheduler_ = std::make_unique<enterprise_reporting::ReportScheduler>(
       std::move(params));
+
+  if (base::FeatureList::IsEnabled(enterprise_reporting::kSaasUsageReporting)) {
+    auto saas_usage_reporting_delegate_factory = enterprise_reporting::
+        SaasUsageReportingDelegateFactoryDesktop::CreateForProfile(profile_);
+    saas_usage_report_scheduler_ =
+        enterprise_reporting::SaasUsageReportScheduler::Create(
+            "profile", saas_usage_reporting_delegate_factory.get());
+  }
 
   report_scheduler_->OnDMTokenUpdated();
 }

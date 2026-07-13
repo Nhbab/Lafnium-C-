@@ -83,7 +83,19 @@ perfetto::NamedTrack GetTracingTrack(
 }  // namespace
 
 SchedulerStateMachine::SchedulerStateMachine(const SchedulerSettings& settings)
-    : settings_(settings) {}
+    : settings_(settings),
+      repeated_no_damage_frame_throttling_threshold1_(
+          std::max(1,
+                   features::kThrottleRepeatedNoDamageFramesThreshold1.Get())),
+      repeated_no_damage_frame_throttling_threshold2_(
+          std::max(1,
+                   features::kThrottleRepeatedNoDamageFramesThreshold2.Get())),
+      repeated_no_damage_frame_throttling_factor1_(std::max(
+          1,
+          features::kThrottleRepeatedNoDamageFramesIntervalFactor1.Get())),
+      repeated_no_damage_frame_throttling_factor2_(std::max(
+          1,
+          features::kThrottleRepeatedNoDamageFramesIntervalFactor2.Get())) {}
 
 SchedulerStateMachine::~SchedulerStateMachine() = default;
 
@@ -1790,14 +1802,25 @@ void SchedulerStateMachine::UpdateConsecutiveNoDamageThrottlingInterval() {
     return;
   }
 
-  // TODO(thiabaud): Figure out better constants, these ones are just arbitrary.
-  // Maybe make this a Finch parameter?
+  if (DisableThrottlingDueToHighFramerateRequests()) {
+    consecutive_no_damage_main_frames_ = 0;
+    main_frame_consecutive_no_damage_throttled_interval_ = base::TimeDelta();
+    return;
+  }
+
   const int count = consecutive_no_damage_main_frames_;
   base::TimeDelta interval;
-  if (count >= 180) {
-    interval = ThrottledFrameRateWithSlack(unthrottled_frame_interval_, 4);
-  } else if (count >= 90) {
-    interval = ThrottledFrameRateWithSlack(unthrottled_frame_interval_, 2);
+
+  if (count >= repeated_no_damage_frame_throttling_threshold2_ +
+                   repeated_no_damage_frame_throttling_threshold1_) {
+    interval = ThrottledFrameRateWithSlack(
+        unthrottled_frame_interval_,
+        repeated_no_damage_frame_throttling_factor2_ *
+            repeated_no_damage_frame_throttling_factor1_);
+  } else if (count >= repeated_no_damage_frame_throttling_threshold1_) {
+    interval = ThrottledFrameRateWithSlack(
+        unthrottled_frame_interval_,
+        repeated_no_damage_frame_throttling_factor1_);
   } else {
     interval = base::TimeDelta();
   }
@@ -1816,9 +1839,15 @@ void SchedulerStateMachine::SetRequestHighFramerate(bool flag) {
   }
 }
 
+bool SchedulerStateMachine::DisableThrottlingDueToHighFramerateRequests()
+    const {
+  return high_framerate_requests_count_ > 0 &&
+         base::FeatureList::IsEnabled(
+             features::kHighFramerateRequestFromClient);
+}
+
 base::TimeDelta SchedulerStateMachine::MainFrameThrottledInterval() const {
-  if (high_framerate_requests_count_ &&
-      base::FeatureList::IsEnabled(features::kHighFramerateRequestFromClient)) {
+  if (DisableThrottlingDueToHighFramerateRequests()) {
     return base::TimeDelta();
   } else {
     return main_frame_throttled_interval_;

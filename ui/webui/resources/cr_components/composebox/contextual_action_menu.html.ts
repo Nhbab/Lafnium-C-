@@ -15,7 +15,7 @@ export function getHtml(this: ContextualActionMenuElement) {
       ?auto-reposition="${!this.disableAutoReposition}">
       ${(this.tabSuggestions?.length > 0 || this.smartTabSharingActive) &&
         this.isInputTypeAllowed_(InputType.kBrowserTab) ? html`
-        ${this.contextManagementInComposeboxEnabled_ ? html`
+        ${this.contextManagementInComposeboxEnabled ? html`
           <div class="share-tabs-container">
             ${this.smartTabSharingVisible && this.smartTabSharingActive ? html`
               <button class="dropdown-item"
@@ -32,7 +32,8 @@ export function getHtml(this: ContextualActionMenuElement) {
               <button id="shareTabsTrigger" class="dropdown-item"
                   role="menuitem"
                   aria-haspopup="menu"
-                  aria-expanded="${this.shareTabsFlyoutOpen_}"
+                  aria-expanded="${this.shareTabsFlyoutOpen}"
+                  ?disabled="${this.isShareTabsTriggerDisabled_()}"
                   @pointerenter="${this.onShareTabsRowPointerenter_}"
                   @pointerleave="${this.onShareTabsRowPointerleave_}"
                   @keydown="${this.onShareTabsRowKeydown_}">
@@ -49,7 +50,7 @@ export function getHtml(this: ContextualActionMenuElement) {
               ${(this.tabSuggestions &&
                   this.tabSuggestions.length > 0) ? html`
               <div class="share-tabs-flyout" role="menu"
-                  ?hidden="${!this.shareTabsFlyoutOpen_}"
+                  ?hidden="${!this.shareTabsFlyoutOpen}"
                   data-position="${this.shareTabsFlyoutPosition_}"
                   @pointerenter="${this.onShareTabsFlyoutPointerenter_}"
                   @pointerleave="${this.onShareTabsFlyoutPointerleave_}"
@@ -59,8 +60,9 @@ export function getHtml(this: ContextualActionMenuElement) {
                       id="smartTabSharingItemFlyout"
                       role="menuitemcheckbox"
                       aria-checked="false"
-                      ?hidden="${!this.shareTabsFlyoutOpen_}"
+                      ?hidden="${!this.shareTabsFlyoutOpen}"
                       @click="${this.onSmartTabSharingItemClick_}">
+                    <cr-icon icon="composebox:screensaverAuto"></cr-icon>
                     <span class="tab-title">
                       ${this.i18n('stsMegaplusShareRelevantOpenTabs')}</span>
                   </button>
@@ -79,7 +81,7 @@ export function getHtml(this: ContextualActionMenuElement) {
                           ${this.getInputTypeLabel_(InputType.kBrowserTab)}
                           : ${tab.title}"
                         ?disabled="${this.isTabDisabled_(tab)}"
-                        ?hidden="${!this.shareTabsFlyoutOpen_}"
+                        ?hidden="${!this.shareTabsFlyoutOpen}"
                         @click="${this.onTabClick_}">
                     <cr-composebox-tab-favicon .url="${tab.url}"
                         .tabId="${tab.tabId}">
@@ -88,7 +90,8 @@ export function getHtml(this: ContextualActionMenuElement) {
                       <span class="tab-title">${tab.title}</span>
                       ${this.isRecentTab_(tab.tabId) ? html`
                         <span class="recent-tabs-suffix"
-                            ?disabled="${this.isTabDisabled_(tab)}">${
+                            ?disabled="${this.isTabDisabled_(tab)}">
+                            · ${
                             this.isSidePanel ?
                             this.i18n('currentTabSuffix') :
                             this.i18n('recentTabsSuffix')}</span>

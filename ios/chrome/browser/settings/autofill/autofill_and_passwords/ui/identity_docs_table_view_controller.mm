@@ -8,14 +8,21 @@
 
 #import "base/apple/foundation_util.h"
 #import "base/check.h"
+#import "base/metrics/user_metrics.h"
 #import "components/autofill/core/browser/data_model/autofill_ai/entity_type.h"
 #import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/net/model/crurl.h"
 #import "ios/chrome/browser/settings/autofill/autofill_ai/ui/autofill_ai_add_entities_menu_builder.h"
 #import "ios/chrome/browser/settings/autofill/autofill_ai/ui/autofill_ai_entity_item.h"
 #import "ios/chrome/browser/settings/autofill/autofill_and_passwords/ui/autofill_ai_base_item_type.h"
 #import "ios/chrome/browser/settings/autofill/autofill_and_passwords/ui/autofill_ai_base_mutator.h"
+#import "ios/chrome/browser/settings/autofill/autofill_and_passwords/ui/identity_docs_mutator.h"
 #import "ios/chrome/browser/settings/autofill/utils/autofill_settings_ui_util.h"
+#import "ios/chrome/browser/settings/ui_bundled/elements/enterprise_info_popover_view_controller.h"
 #import "ios/chrome/browser/settings/ui_bundled/settings_root_table_view_controller+toolbar_add.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_info_button_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_link_header_footer_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_switch_item.h"
 #import "ios/chrome/browser/shared/ui/table_view/cells/table_view_text_header_footer_item.h"
 #import "ios/chrome/browser/shared/ui/table_view/table_view_utils.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
@@ -25,27 +32,22 @@
 
 namespace {
 enum SectionIdentifier {
-  SectionIdentifierDriversLicenses = kSectionIdentifierEnumZero,
+  SectionIdentifierToggle = kSectionIdentifierEnumZero,
+  SectionIdentifierDriversLicenses,
   SectionIdentifierNationalIdCards,
   SectionIdentifierPassports,
 };
 
-// Returns YES if `items` contains any local (non-server) entities.
-BOOL ContainsLocalEntity(NSArray<TableViewItem*>* items) {
-  for (TableViewItem* item in items) {
-    AutofillAIEntityItem* aiItem =
-        base::apple::ObjCCast<AutofillAIEntityItem>(item);
-    if (aiItem && !aiItem.isServerWalletItem) {
-      return YES;
-    }
-  }
-  return NO;
-}
+enum ItemType {
+  ItemTypeToggle = kAutofillAIBaseItemTypeEntity + 1,
+  ItemTypeFooter,
+};
 
 }  // namespace
 
 @interface IdentityDocsTableViewController () <
-    AutofillAIAddEntitiesMenuDelegate>
+    AutofillAIAddEntitiesMenuDelegate,
+    PopoverLabelViewControllerDelegate>
 @end
 
 // View controller implementation for Identity Docs.
@@ -57,10 +59,18 @@ BOOL ContainsLocalEntity(NSArray<TableViewItem*>* items) {
   std::vector<autofill::EntityType> _writableEntityTypes;
   UIBarButtonItem* _addButtonInToolbar;
   BOOL _hasLocalEntities;
+  BOOL _identityDocsEnabled;
+  BOOL _identityDocsToggleEnabled;
+  BOOL _identityDocsToggleManaged;
 }
 
 - (instancetype)init {
-  return [super initWithStyle:ChromeTableViewStyle()];
+  self = [super initWithStyle:ChromeTableViewStyle()];
+  if (self) {
+    _identityDocsToggleEnabled = YES;
+    _identityDocsToggleManaged = NO;
+  }
+  return self;
 }
 
 - (void)viewDidLoad {
@@ -82,6 +92,36 @@ BOOL ContainsLocalEntity(NSArray<TableViewItem*>* items) {
   [super loadModel];
 
   TableViewModel* model = self.tableViewModel;
+
+  [model addSectionWithIdentifier:SectionIdentifierToggle];
+  if (_identityDocsToggleManaged) {
+    TableViewInfoButtonItem* managedItem =
+        [[TableViewInfoButtonItem alloc] initWithType:ItemTypeToggle];
+    managedItem.text =
+        l10n_util::GetNSString(IDS_AUTOFILL_IDENTITY_DOCS_OPT_IN_TOGGLE_LABEL);
+    managedItem.statusText = l10n_util::GetNSString(IDS_IOS_SETTING_OFF);
+    managedItem.accessibilityHint = l10n_util::GetNSString(
+        IDS_IOS_TOGGLE_SETTING_MANAGED_ACCESSIBILITY_HINT);
+    managedItem.target = self;
+    managedItem.selector = @selector(didTapManagedUIInfoButton:);
+    [model addItem:managedItem toSectionWithIdentifier:SectionIdentifierToggle];
+  } else {
+    TableViewSwitchItem* toggleItem =
+        [[TableViewSwitchItem alloc] initWithType:ItemTypeToggle];
+    toggleItem.text =
+        l10n_util::GetNSString(IDS_AUTOFILL_IDENTITY_DOCS_OPT_IN_TOGGLE_LABEL);
+    toggleItem.on = _identityDocsToggleEnabled && _identityDocsEnabled;
+    toggleItem.enabled = _identityDocsToggleEnabled;
+    toggleItem.target = self;
+    toggleItem.selector = @selector(identityDocsToggleChanged:);
+    [model addItem:toggleItem toSectionWithIdentifier:SectionIdentifierToggle];
+  }
+
+  TableViewLinkHeaderFooterItem* footer =
+      [[TableViewLinkHeaderFooterItem alloc] initWithType:ItemTypeFooter];
+  footer.text = l10n_util::GetNSString(
+      IDS_AUTOFILL_IDENTITY_DOCS_OPT_IN_TOGGLE_SUB_LABEL);
+  [model setFooter:footer forSectionWithIdentifier:SectionIdentifierToggle];
 
   if (_driversLicenses.count > 0) {
     [model addSectionWithIdentifier:SectionIdentifierDriversLicenses];
@@ -145,6 +185,66 @@ BOOL ContainsLocalEntity(NSArray<TableViewItem*>* items) {
   }
 }
 
+- (void)setIdentityDocsToggleState:(BOOL)on
+                           enabled:(BOOL)enabled
+                           managed:(BOOL)managed {
+  if (_identityDocsEnabled == on && _identityDocsToggleEnabled == enabled &&
+      _identityDocsToggleManaged == managed) {
+    return;
+  }
+
+  BOOL modelNeedsRebuild = (_identityDocsToggleManaged != managed);
+  _identityDocsEnabled = on;
+  _identityDocsToggleEnabled = enabled;
+  _identityDocsToggleManaged = managed;
+
+  if (self.isViewLoaded) {
+    if (modelNeedsRebuild) {
+      [self reloadData];
+    } else {
+      TableViewModel* model = self.tableViewModel;
+      NSIndexPath* togglePath =
+          [model indexPathForItemType:ItemTypeToggle
+                    sectionIdentifier:SectionIdentifierToggle];
+      if (togglePath) {
+        if (managed) {
+          TableViewInfoButtonItem* managedItem =
+              base::apple::ObjCCastStrict<TableViewInfoButtonItem>(
+                  [model itemAtIndexPath:togglePath]);
+          [self reconfigureCellsForItems:@[ managedItem ]];
+        } else {
+          TableViewSwitchItem* switchItem =
+              base::apple::ObjCCastStrict<TableViewSwitchItem>(
+                  [model itemAtIndexPath:togglePath]);
+          switchItem.enabled = enabled;
+          switchItem.on = enabled ? on : NO;
+          [self reconfigureCellsForItems:@[ switchItem ]];
+        }
+      }
+    }
+    [self updateAddButtonInToolbar];
+  }
+}
+
+- (void)identityDocsToggleChanged:(UISwitch*)switchView {
+  BOOL switchOn = [switchView isOn];
+  _identityDocsEnabled = switchOn;
+
+  TableViewModel* model = self.tableViewModel;
+  NSIndexPath* switchPath =
+      [model indexPathForItemType:ItemTypeToggle
+                sectionIdentifier:SectionIdentifierToggle];
+  if (switchPath) {
+    TableViewSwitchItem* switchItem =
+        base::apple::ObjCCastStrict<TableViewSwitchItem>(
+            [model itemAtIndexPath:switchPath]);
+    switchItem.on = switchOn;
+  }
+
+  [self updateAddButtonInToolbar];
+  [self.mutator didToggleIdentityDocs:switchOn];
+}
+
 - (void)setWritableEntityTypes:
     (const std::vector<autofill::EntityType>&)writableEntityTypes {
   _writableEntityTypes = writableEntityTypes;
@@ -171,7 +271,7 @@ BOOL ContainsLocalEntity(NSArray<TableViewItem*>* items) {
     }
     UITableViewCell* cell = [self.tableView cellForRowAtIndexPath:indexPath];
     if (cell) {
-      [self updateOpacityAndInteractionForCell:cell atIndexPath:indexPath];
+      [self updateOpacityForCell:cell atIndexPath:indexPath];
     }
   }
 }
@@ -208,12 +308,15 @@ BOOL ContainsLocalEntity(NSArray<TableViewItem*>* items) {
   }
   _addButtonInToolbar.action = nil;
   _addButtonInToolbar.target = nil;
-  _addButtonInToolbar.menu =
-      [AutofillAIAddEntitiesMenuBuilder buildMenuWithTypes:_writableEntityTypes
-                                            profileEnabled:NO
-                                           entitiesEnabled:YES
-                                                  delegate:self];
-  _addButtonInToolbar.enabled = !_writableEntityTypes.empty();
+  _addButtonInToolbar.menu = [AutofillAIAddEntitiesMenuBuilder
+      buildMenuWithTypes:_writableEntityTypes
+          profileEnabled:NO
+         entitiesEnabled:_identityDocsEnabled && _identityDocsToggleEnabled &&
+                         !_identityDocsToggleManaged
+                delegate:self];
+  _addButtonInToolbar.enabled =
+      _identityDocsEnabled && _identityDocsToggleEnabled &&
+      !_identityDocsToggleManaged && !_writableEntityTypes.empty();
 }
 
 #pragma mark - AutofillAIAddEntitiesMenuDelegate
@@ -303,6 +406,15 @@ BOOL ContainsLocalEntity(NSArray<TableViewItem*>* items) {
   return ![self isServerWalletItemAtIndexPath:indexPath];
 }
 
+- (NSIndexPath*)tableView:(UITableView*)tableView
+    willSelectRowAtIndexPath:(NSIndexPath*)indexPath {
+  if (self.tableView.editing &&
+      [self isServerWalletItemAtIndexPath:indexPath]) {
+    return nil;
+  }
+  return [super tableView:tableView willSelectRowAtIndexPath:indexPath];
+}
+
 - (void)setEditing:(BOOL)editing animated:(BOOL)animated {
   [super setEditing:editing animated:animated];
   if (_settingsAreDismissed) {
@@ -374,7 +486,7 @@ BOOL ContainsLocalEntity(NSArray<TableViewItem*>* items) {
     selectedBackgroundView.backgroundColor = selectedColor;
     cell.selectedBackgroundView = selectedBackgroundView;
   }
-  [self updateOpacityAndInteractionForCell:cell atIndexPath:indexPath];
+  [self updateOpacityForCell:cell atIndexPath:indexPath];
 
   return cell;
 }
@@ -410,30 +522,57 @@ BOOL ContainsLocalEntity(NSArray<TableViewItem*>* items) {
   return NO;
 }
 
-// Updates the opacity and interaction state of the given `cell` based on
-// whether it represents a server wallet entity and the table's editing state.
-- (void)updateOpacityAndInteractionForCell:(UITableViewCell*)cell
-                               atIndexPath:(NSIndexPath*)indexPath {
+// Updates the opacity of the given `cell` based on whether it represents a
+// server wallet entity and the table's editing state.
+- (void)updateOpacityForCell:(UITableViewCell*)cell
+                 atIndexPath:(NSIndexPath*)indexPath {
   BOOL shouldDisable =
       [self isServerWalletItemAtIndexPath:indexPath] && self.tableView.editing;
 
   cell.contentView.alpha = shouldDisable ? 0.5 : 1.0;
-  cell.userInteractionEnabled = !shouldDisable;
 }
 
 #pragma mark - SettingsControllerProtocol
 
 - (void)reportDismissalUserAction {
-  // TODO(crbug.com/500341282): Add missing metric.
+  base::RecordAction(
+      base::UserMetricsAction("MobileIdentityDocsSettingsClose"));
 }
 
 - (void)reportBackUserAction {
-  // TODO(crbug.com/500341282): Add missing metric.
+  base::RecordAction(base::UserMetricsAction("MobileIdentityDocsSettingsBack"));
 }
 
 - (void)settingsWillBeDismissed {
   DCHECK(!_settingsAreDismissed);
   _settingsAreDismissed = YES;
+}
+
+// Called when the user clicks on the information button of the managed
+// setting's UI. Shows a textual bubble with the information of the enterprise.
+- (void)didTapManagedUIInfoButton:(UIButton*)buttonView {
+  if (_settingsAreDismissed) {
+    return;
+  }
+
+  EnterpriseInfoPopoverViewController* bubbleViewController =
+      [[EnterpriseInfoPopoverViewController alloc] initWithEnterpriseName:nil];
+  bubbleViewController.delegate = self;
+
+  // Set the anchor and arrow direction of the bubble.
+  bubbleViewController.popoverPresentationController.sourceView = buttonView;
+  bubbleViewController.popoverPresentationController.sourceRect =
+      buttonView.bounds;
+  bubbleViewController.popoverPresentationController.permittedArrowDirections =
+      UIPopoverArrowDirectionAny;
+
+  [self presentViewController:bubbleViewController animated:YES completion:nil];
+}
+
+#pragma mark - PopoverLabelViewControllerDelegate
+
+- (void)didTapLinkURL:(NSURL*)URL {
+  [self view:nil didTapLinkURL:[[CrURL alloc] initWithNSURL:URL]];
 }
 
 @end

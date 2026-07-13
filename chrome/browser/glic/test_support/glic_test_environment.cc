@@ -187,6 +187,11 @@ std::vector<base::test::FeatureRef> GetDefaultEnabledGlicTestFeatures() {
           // Live mode is disabled by default on Linux, but we still want to
           // test it.
           features::kGlicLiveMode,
+          // The anchor entry point is disabled by default globally, but we want
+          // all glic tests to run with the intended future behavior. Explicit
+          // enabling is required here because some tests instantiate their own
+          // ScopedFeatureList which can clobber the field trial testing config.
+          features::kGlicAnchorEntryPointForOnboardedUsers,
 #if BUILDFLAG(IS_CHROMEOS)
           chromeos::features::kFeatureManagementGlic
 #endif  // BUILDFLAG(IS_CHROMEOS)
@@ -316,12 +321,6 @@ bool GlicTestEnvironment::SetupEmbeddedTestServers(
   guest_url_ = http_server->GetURL(path.str());
   command_line->AppendSwitchASCII(::switches::kGlicGuestURL, guest_url_.spec());
 
-  if (glic_fre_url_override_) {
-    glic_fre_url_ = *glic_fre_url_override_;
-  } else {
-    glic_fre_url_ = http_server->GetURL("/glic/test_client/fre.html");
-  }
-  command_line->AppendSwitchASCII(switches::kGlicFreURL, glic_fre_url_->spec());
 
   return true;
 }
@@ -339,20 +338,9 @@ void GlicTestEnvironment::AddMockGlicQueryParam(const std::string_view& key,
   mock_glic_query_params_.emplace(key, value);
 }
 
-void GlicTestEnvironment::SetGlicFreUrlOverride(const GURL& url) {
-  CHECK(guest_url_.is_empty())
-      << "SetGlicFreUrlOverride must be called before SetupEmbeddedTestServers";
-  glic_fre_url_override_ = url;
-}
-
 GURL GlicTestEnvironment::GetGuestURL() const {
   CHECK(guest_url_.is_valid()) << "Guest URL not yet configured.";
   return guest_url_;
-}
-
-const std::optional<GURL>& GlicTestEnvironment::GetGlicFreUrl() const {
-  CHECK(glic_fre_url_.has_value()) << "GLIC FRE URL not yet configured.";
-  return glic_fre_url_;
 }
 
 GlicTestEnvironmentService::GlicTestEnvironmentService(Profile* profile)

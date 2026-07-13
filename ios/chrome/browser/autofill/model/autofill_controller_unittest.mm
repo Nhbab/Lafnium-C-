@@ -46,6 +46,7 @@
 #import "components/autofill/ios/browser/test_autofill_client_ios.h"
 #import "components/autofill/ios/browser/test_autofill_manager_injector.h"
 #import "components/autofill/ios/common/field_data_manager_factory_ios.h"
+#import "components/autofill/ios/form_util/form_activity_tab_helper.h"
 #import "components/infobars/core/confirm_infobar_delegate.h"
 #import "components/infobars/core/infobar.h"
 #import "components/infobars/core/infobar_manager.h"
@@ -371,8 +372,7 @@ class AutofillControllerTest : public PlatformTest {
   bool processed_a_task_ = false;
   // Histogram tester for these tests.
   std::unique_ptr<base::HistogramTester> histogram_tester_;
-  raw_ptr<AutofillBottomSheetTabHelper, DanglingUntriaged>
-      bottomsheet_tab_helper_;
+  raw_ptr<AutofillBottomSheetTabHelper> bottomsheet_tab_helper_;
   id<AutofillCommands> autofill_commands_handler_;
   ScopedFeatureList scoped_feature_list_2_;
 
@@ -440,6 +440,9 @@ void AutofillControllerTest::SetUp() {
   bottomsheet_tab_helper_->SetAutofillBottomSheetHandler(
       autofill_commands_handler_);
 
+  autofill::FormActivityTabHelper::GetOrCreateForWebState(web_state())
+      ->SetForceSubmittedByUserForTesting(true);
+
   histogram_tester_ = std::make_unique<base::HistogramTester>();
 }
 
@@ -448,6 +451,8 @@ void AutofillControllerTest::TearDown() {
   [suggestion_controller_ detachFromWebState];
 
   autofill_manager_injector_.reset();
+
+  bottomsheet_tab_helper_ = nullptr;
 
   web::test::WaitForBackgroundTasks();
   web_state_.reset();

@@ -14,7 +14,6 @@
 #include "components/find_in_page/find_tab_helper.h"
 #include "components/paint_preview/buildflags/buildflags.h"
 #include "content/public/browser/immersive_playback_options.h"
-#include "printing/buildflags/buildflags.h"
 #include "third_party/blink/public/mojom/frame/blocked_navigation_types.mojom.h"
 #include "url/origin.h"
 
@@ -137,14 +136,6 @@ class TabWebContentsDelegateAndroid
       bool include_actionable_elements,
       base::OnceCallback<void(const std::string&)> callback) override;
 
-#if BUILDFLAG(ENABLE_PRINTING)
-  void PrintCrossProcessSubframe(
-      content::WebContents* web_contents,
-      const gfx::Rect& rect,
-      int document_cookie,
-      content::RenderFrameHost* subframe_host) const override;
-#endif
-
 #if BUILDFLAG(ENABLE_PAINT_PREVIEW)
   void CapturePaintPreviewOfSubframe(
       content::WebContents* web_contents,
@@ -177,6 +168,7 @@ class TabWebContentsDelegateAndroid
 
   bool IsImmersivePlaybackEnabled() const override;
   void RequestImmersivePlaybackConfirmation(
+      const content::ImmersiveOptions& default_options,
       base::OnceCallback<void(content::ImmersivePlaybackConfirmationResult)>
           callback) override;
 

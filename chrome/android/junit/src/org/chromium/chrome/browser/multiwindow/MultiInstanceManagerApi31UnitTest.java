@@ -393,6 +393,8 @@ public class MultiInstanceManagerApi31UnitTest {
         when(mTabGroupSyncService.getAllGroupIds()).thenReturn(new String[] {});
         when(mNormalTabModel.getProfile()).thenReturn(mProfile);
         when(mTabModelSelector.isTabStateInitialized()).thenReturn(true);
+        when(mTabModelSelector.getCurrentTabModelSupplier())
+                .thenReturn(ObservableSuppliers.createMonotonic(mNormalTabModel));
         doNothing()
                 .when(mMultiInstanceManager)
                 .showTargetSelectorDialog(MockitoHelper.anyCallback(), anyInt(), anyInt());
@@ -556,7 +558,7 @@ public class MultiInstanceManagerApi31UnitTest {
         MultiWindowUtils.setMaxInstancesForTesting(2);
 
         // Simulate deletion of instance0, so id=0 becomes available.
-        MultiInstanceManagerApi31.removeInstanceInfo(0, CloseWindowAppSource.OTHER);
+        MultiWindowUtils.removeInstanceInfo(0, CloseWindowAppSource.OTHER);
 
         // Trying to allocate a new instance with preferNew should fail.
         when(mActivityTask59.getSystemService(Context.ACTIVITY_SERVICE))
@@ -1525,7 +1527,7 @@ public class MultiInstanceManagerApi31UnitTest {
                                 CloseWindowAppSource.OTHER)
                         .build();
 
-        MultiInstanceManagerApi31.removeInstanceInfo(index, CloseWindowAppSource.OTHER);
+        MultiWindowUtils.removeInstanceInfo(index, CloseWindowAppSource.OTHER);
         histogramWatcher.assertExpected();
         assertNull(
                 "Persistent store should be updated.",

@@ -63,7 +63,9 @@ class ContextualTasksBrowserTest : public WebUIMochaBrowserTest {
 };
 
 // TODO(crbug.com/487147580): Re-enable the test
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_ANDROID)
+// Only running on Mac and Desktop Android currently.
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || \
+    (BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_DESKTOP_ANDROID))
 #define MAYBE_App DISABLED_App
 #else
 #define MAYBE_App App
@@ -78,7 +80,8 @@ IN_PROC_BROWSER_TEST_F(ContextualTasksBrowserTest, App_Composebox_BasicMode) {
 }
 
 // TODO(crbug.com/487147580): Re-enable the test
-#if BUILDFLAG(IS_LINUX)
+// TODO(crbug.com/527559266): Flaky on ChromeOS.
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 #define MAYBE_Composebox DISABLED_Composebox
 #else
 #define MAYBE_Composebox Composebox
@@ -109,8 +112,8 @@ IN_PROC_BROWSER_TEST_F(ContextualTasksBrowserTest, MAYBE_Composebox_Submit) {
   RunTest("contextual_tasks/composebox_submit_test.js", "mocha.run();");
 }
 
-// TODO(crbug.com/480689282): Flaky on Linux debug.
-#if BUILDFLAG(IS_LINUX) && !defined(NDEBUG)
+// TODO(crbug.com/480689282): Flaky on Linux and ChromeOS debug.
+#if BUILDFLAG(IS_LINUX) || (BUILDFLAG(IS_CHROMEOS) && !defined(NDEBUG))
 #define MAYBE_Composebox_ZeroState DISABLED_Composebox_ZeroState
 #else
 #define MAYBE_Composebox_ZeroState Composebox_ZeroState
@@ -137,7 +140,17 @@ IN_PROC_BROWSER_TEST_F(ContextualTasksBrowserTest, OnboardingTooltip) {
   RunTest("contextual_tasks/onboarding_tooltip_test.js", "mocha.run();");
 }
 
-IN_PROC_BROWSER_TEST_F(ContextualTasksBrowserTest, WebView) {
+IN_PROC_BROWSER_TEST_F(ContextualTasksBrowserTest, LensSearchTooltip) {
+  RunTest("contextual_tasks/lens_search_tooltip_test.js", "mocha.run();");
+}
+
+// TODO(crbug.com/529817776): Re-enable when the timeouts get fixed.
+#if BUILDFLAG(IS_LINUX) && !defined(NDEBUG)
+#define MAYBE_WebView DISABLED_WebView
+#else
+#define MAYBE_WebView WebView
+#endif
+IN_PROC_BROWSER_TEST_F(ContextualTasksBrowserTest, MAYBE_WebView) {
   RunTest("contextual_tasks/contextual_tasks_webview_browsertest.js",
           "mocha.run();");
 }

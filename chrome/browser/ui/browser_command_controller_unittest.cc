@@ -65,7 +65,7 @@ class BrowserCommandControllerTest : public BrowserWithTestWindowTest {
     auto observer =
         std::make_unique<tab_groups::TabGroupSyncServiceInitializedObserver>(
             tab_groups::TabGroupSyncServiceFactory::GetForProfile(
-                browser()->profile()));
+                browser()->GetProfile()));
     observer->Wait();
   }
 };
@@ -215,7 +215,7 @@ TEST_F(BrowserWithTestWindowTest, IncognitoCommands) {
 
   testprofile->SetGuestSession(false);
   IncognitoModePrefs::SetAvailability(
-      browser()->profile()->GetPrefs(),
+      browser()->GetProfile()->GetPrefs(),
       policy::IncognitoModeAvailability::kForced);
   chrome::BrowserCommandController ::
       UpdateSharedCommandsForIncognitoAvailability(
@@ -408,7 +408,7 @@ TEST_F(BrowserCommandControllerFullscreenTest,
     { IDC_FOCUS_NEXT_PANE,         true,     false,     false,     false    },
     { IDC_FOCUS_PREVIOUS_PANE,     true,     false,     false,     false    },
     { IDC_FOCUS_BOOKMARKS,         true,     false,     false,     false    },
-    { IDC_DEVELOPER_MENU,          true,     false,     false,     false    },
+    { kDeveloperMenuId,            true,     false,     false,     false    },
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
     { IDC_FEEDBACK,                true,     false,     false,     false    },
     { IDC_REPORT_UNSAFE_SITE,      true,     false,     false,     false    },
@@ -514,7 +514,7 @@ TEST_F(BrowserWithTestWindowTest, OptionsConsistency) {
   profile->SetGuestSession(true);
   // Setup forced incognito mode.
   IncognitoModePrefs::SetAvailability(
-      browser()->profile()->GetPrefs(),
+      browser()->GetProfile()->GetPrefs(),
       policy::IncognitoModeAvailability::kForced);
   EXPECT_TRUE(chrome::IsCommandEnabled(browser(), IDC_OPTIONS));
   // Enter fullscreen.
@@ -526,10 +526,10 @@ TEST_F(BrowserWithTestWindowTest, OptionsConsistency) {
   // Reenter incognito mode, this should trigger
   // UpdateSharedCommandsForIncognitoAvailability() again.
   IncognitoModePrefs::SetAvailability(
-      browser()->profile()->GetPrefs(),
+      browser()->GetProfile()->GetPrefs(),
       policy::IncognitoModeAvailability::kDisabled);
   IncognitoModePrefs::SetAvailability(
-      browser()->profile()->GetPrefs(),
+      browser()->GetProfile()->GetPrefs(),
       policy::IncognitoModeAvailability::kForced);
   EXPECT_TRUE(chrome::IsCommandEnabled(browser(), IDC_OPTIONS));
 }
@@ -653,7 +653,11 @@ TEST_F(BrowserCommandControllerWithBookmarksTest,
   EXPECT_TRUE(command_controller.IsCommandEnabled(
       IDC_BOOKMARK_BAR_SUBMENU_ONLY_ON_NTP));
 
+  base::UserActionTester user_action_tester;
+
   // Test executing visibility commands updates the pref correctly.
+  EXPECT_EQ(0, user_action_tester.GetActionCount(
+                   "WrenchMenu_Bookmarks_AlwaysShowBookmarkBar"));
   command_controller.ExecuteCommand(
       IDC_BOOKMARK_BAR_SUBMENU_ALWAYS_SHOW,
       blink::WebInputEvent::GetStaticTimeStampForTests());
@@ -661,7 +665,11 @@ TEST_F(BrowserCommandControllerWithBookmarksTest,
       profile()->GetPrefs()->GetInteger(
           bookmarks::prefs::kBookmarkBarVisibilityState),
       static_cast<int>(bookmarks::BookmarkBarVisibilityState::kAlwaysShow));
+  EXPECT_EQ(1, user_action_tester.GetActionCount(
+                   "WrenchMenu_Bookmarks_AlwaysShowBookmarkBar"));
 
+  EXPECT_EQ(0, user_action_tester.GetActionCount(
+                   "WrenchMenu_Bookmarks_AlwaysHideBookmarkBar"));
   command_controller.ExecuteCommand(
       IDC_BOOKMARK_BAR_SUBMENU_ALWAYS_HIDE,
       blink::WebInputEvent::GetStaticTimeStampForTests());
@@ -669,7 +677,11 @@ TEST_F(BrowserCommandControllerWithBookmarksTest,
       profile()->GetPrefs()->GetInteger(
           bookmarks::prefs::kBookmarkBarVisibilityState),
       static_cast<int>(bookmarks::BookmarkBarVisibilityState::kAlwaysHide));
+  EXPECT_EQ(1, user_action_tester.GetActionCount(
+                   "WrenchMenu_Bookmarks_AlwaysHideBookmarkBar"));
 
+  EXPECT_EQ(0, user_action_tester.GetActionCount(
+                   "WrenchMenu_Bookmarks_OnlyShowBookmarkBarOnNtp"));
   command_controller.ExecuteCommand(
       IDC_BOOKMARK_BAR_SUBMENU_ONLY_ON_NTP,
       blink::WebInputEvent::GetStaticTimeStampForTests());
@@ -677,6 +689,8 @@ TEST_F(BrowserCommandControllerWithBookmarksTest,
       profile()->GetPrefs()->GetInteger(
           bookmarks::prefs::kBookmarkBarVisibilityState),
       static_cast<int>(bookmarks::BookmarkBarVisibilityState::kOnlyShowOnNtp));
+  EXPECT_EQ(1, user_action_tester.GetActionCount(
+                   "WrenchMenu_Bookmarks_OnlyShowBookmarkBarOnNtp"));
 }
 
 TEST_F(BrowserCommandControllerTest,
@@ -744,11 +758,11 @@ class CreateShortcutBrowserCommandControllerTest
     // Simulate installing the extension.
     extensions::TestExtensionSystem* extension_system =
         static_cast<extensions::TestExtensionSystem*>(
-            extensions::ExtensionSystem::Get(browser()->profile()));
+            extensions::ExtensionSystem::Get(browser()->GetProfile()));
     extension_system->CreateExtensionService(
         base::CommandLine::ForCurrentProcess(),
         /*install_directory=*/base::FilePath(), /*autoupdate_enabled=*/false);
-    extensions::ExtensionRegistrar::Get(browser()->profile())
+    extensions::ExtensionRegistrar::Get(browser()->GetProfile())
         ->AddExtension(extension);
 
     return extension;

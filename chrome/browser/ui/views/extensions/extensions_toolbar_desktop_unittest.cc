@@ -307,7 +307,7 @@ TEST_F(ExtensionsToolbarDesktopUnitTest,
   };
 
   Browser* browser2 =
-      CreateBrowserWithBrowserView(browser()->profile(), browser()->type());
+      CreateBrowserWithBrowserView(browser()->GetProfile(), browser()->type());
 
   // Verify extension is unpinned in both windows.
   EXPECT_FALSE(is_action_visible_on_toolbar(browser()));
@@ -323,7 +323,7 @@ TEST_F(ExtensionsToolbarDesktopUnitTest,
   EXPECT_TRUE(is_action_visible_on_toolbar(browser2));
 
   Browser* browser3 =
-      CreateBrowserWithBrowserView(browser()->profile(), browser()->type());
+      CreateBrowserWithBrowserView(browser()->GetProfile(), browser()->type());
 
   // Brand-new window also gets the pinned extension.
   EXPECT_TRUE(is_action_visible_on_toolbar(browser3));
@@ -785,9 +785,6 @@ TEST_F(ExtensionsToolbarDesktopUnitTest,
       InstallExtensionWithHostPermissions("Extension", {"<all_urls>"});
   WithholdHostPermissions(extension.get());
 
-  extensions::HostAccessRequestsHelper::SetCooldownForTesting(
-      base::TimeDelta());
-
   // Navigate to a site and verify request access button is not visible, since
   // no extension has added a request.
   NavigateAndCommit(GURL("http://www.example.com"));
@@ -892,9 +889,6 @@ TEST_F(ExtensionsToolbarDesktopUnitTest,
 // same-origin navigations.
 TEST_F(ExtensionsToolbarDesktopUnitTest,
        RequestAccessButton_NavigationBetweenPages_RequestWithPattern) {
-  extensions::HostAccessRequestsHelper::SetCooldownForTesting(
-      base::TimeDelta());
-
   auto extension =
       InstallExtensionWithHostPermissions("Extension", {"<all_urls>"});
   WithholdHostPermissions(extension.get());
@@ -996,7 +990,7 @@ TEST_F(ExtensionsToolbarDesktopUnitTest,
   // button. However, request access button is not visible because we haven't
   // navigated to a site yet (and extensions haven't added any site access
   // requests).
-  SitePermissionsHelper permissions_helper(browser()->profile());
+  SitePermissionsHelper permissions_helper(browser()->GetProfile());
   EXPECT_TRUE(
       permissions_helper.ShowAccessRequestsInToolbar(extension_a->id()));
   EXPECT_TRUE(
@@ -1047,7 +1041,7 @@ TEST_F(ExtensionsToolbarDesktopUnitTest, RequestAccessButton_RequestDismissed) {
   // button. However, request access button is not visible because we haven't
   // navigated to a site yet (and extensions haven't added any site access
   // requests).
-  SitePermissionsHelper permissions_helper(browser()->profile());
+  SitePermissionsHelper permissions_helper(browser()->GetProfile());
   EXPECT_TRUE(
       permissions_helper.ShowAccessRequestsInToolbar(extension_a->id()));
   EXPECT_TRUE(
@@ -1088,9 +1082,6 @@ TEST_F(ExtensionsToolbarDesktopUnitTest, RequestAccessButton_RequestDismissed) {
 
 TEST_F(ExtensionsToolbarDesktopUnitTest,
        RequestAccessButton_OnPressedExecuteAction) {
-  extensions::HostAccessRequestsHelper::SetCooldownForTesting(
-      base::TimeDelta());
-
   auto extension =
       InstallExtensionWithHostPermissions("Extension", {"<all_urls>"});
   WithholdHostPermissions(extension.get());
@@ -1156,9 +1147,6 @@ TEST_F(ExtensionsToolbarDesktopUnitTest,
 // correct information.
 TEST_F(ExtensionsToolbarDesktopUnitTest,
        RequestAccessButton_UpdateInBetweenClickAndConfirmationCollapse) {
-  extensions::HostAccessRequestsHelper::SetCooldownForTesting(
-      base::TimeDelta());
-
   auto extension_A =
       InstallExtensionWithHostPermissions("Extension A", {"<all_urls>"});
   auto extension_B =

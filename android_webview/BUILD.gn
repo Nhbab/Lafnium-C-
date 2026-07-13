@@ -586,7 +586,6 @@ if (_is_default_toolchain) {
       "java/src/org/chromium/android_webview/safe_mode/BrowserSafeModeActionList.java",
       "java/src/org/chromium/android_webview/safe_mode/DisableCrashyClassSafeModeAction.java",
       "java/src/org/chromium/android_webview/safe_mode/NoopSafeModeAction.java",
-      "java/src/org/chromium/android_webview/selection/AwSelectionActionMenuDelegate.java",
       "java/src/org/chromium/android_webview/selection/PlatformSelectionActionMenuDelegate.java",
       "java/src/org/chromium/android_webview/selection/SamsungSelectionActionMenuDelegate.java",
       "java/src/org/chromium/android_webview/selection/SelectionActionMenuDelegateProvider.java",
@@ -622,6 +621,7 @@ if (_is_default_toolchain) {
       "//components/embedder_support/android:application_java",
       "//components/embedder_support/android:context_menu_java",
       "//components/embedder_support/android:embedder_util_java",
+      "//components/embedder_support/android:selection_java",
       "//components/embedder_support/android:util_java",
       "//components/embedder_support/android:web_contents_delegate_java",
       "//components/embedder_support/android:web_contents_delegate_java_resources",
@@ -1078,6 +1078,7 @@ if (_is_default_toolchain) {
     defines = [
       "enable_pdf=$enable_pdf",
       "enable_printing=$enable_printing",
+      "enable_private_insights=false",
       "safe_browsing_mode=$safe_browsing_mode",
       "enable_supervised_users=$enable_supervised_users",
       "optimize_webui=$optimize_webui",
@@ -1263,7 +1264,7 @@ declare_args() {
        (chrome_pgo_phase == 2 || chrome_pgo_phase == 0)) ||
       ((current_cpu == "arm" || current_cpu == "x86") &&
        chrome_pgo_phase == 0 && is_official_build)) {
-    if (enable_chrome_android_internal && use_lld) {
+    if (use_lld) {
       # We generate separate orderfiles for 32-bit and 64-bit architectures
       # to improve performance and reduce memory usage.
       # - WebView and Chrome ARM64, see https://crbug.com/41490637.

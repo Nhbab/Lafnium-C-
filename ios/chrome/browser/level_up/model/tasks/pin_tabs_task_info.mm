@@ -7,6 +7,8 @@
 #import "ios/chrome/browser/level_up/model/task_info.h"
 #import "ios/chrome/browser/level_up/model/tasks/task_factories.h"
 #import "ios/chrome/browser/shared/ui/symbols/symbols.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
 
 class PinTabsTaskInfo : public TaskInfo {
  public:
@@ -15,8 +17,10 @@ class PinTabsTaskInfo : public TaskInfo {
 
   // TaskInfo implementation.
   TaskType GetTaskType() const override { return TaskType::kPinTabs; }
-  int GetTitleId() const override { return 0; }
-  int GetTaskDescriptionId() const override { return 0; }
+  std::string GetTitle() const override { return "Pin tabs"; }
+  std::string GetTaskDescription() const override {
+    return "Save your favorite sites by pinning them";
+  }
   std::string GetIconSymbolName() const override {
     return base::SysNSStringToUTF8(kPinSymbol);
   }
@@ -27,7 +31,10 @@ class PinTabsTaskInfo : public TaskInfo {
   std::string GetTriggerUserAction() const override {
     return "MobileTabPinned";
   }
-  base::RepeatingClosure GetNavigationAction() const override {
+  std::string GetCompletionSnackbarMessage() const override {
+    return l10n_util::GetStringUTF8(IDS_IOS_LEVEL_UP_TASK_COMPLETED_PIN_TABS);
+  }
+  TaskInfo::NavigationAction GetNavigationAction() const override {
     return base::DoNothing();
   }
 };

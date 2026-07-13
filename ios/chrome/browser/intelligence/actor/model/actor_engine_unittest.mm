@@ -5,6 +5,7 @@
 #import "ios/chrome/browser/intelligence/actor/model/actor_engine.h"
 
 #import "base/run_loop.h"
+#import "base/test/scoped_feature_list.h"
 #import "base/test/task_environment.h"
 #import "components/actor/public/mojom/actor_types.mojom.h"
 #import "ios/chrome/browser/intelligence/actor/model/actor_task.h"
@@ -13,6 +14,7 @@
 #import "ios/chrome/browser/intelligence/actor/tools/model/actor_tool_request.h"
 #import "ios/chrome/browser/intelligence/actor/tools/model/tool_delegate.h"
 #import "ios/chrome/browser/intelligence/actor/util/actor_test_utils.h"
+#import "ios/chrome/browser/intelligence/features/features.h"
 #import "ios/chrome/browser/shared/model/profile/test/test_profile_ios.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
 #import "testing/gtest/include/gtest/gtest.h"
@@ -56,6 +58,18 @@ class FakeToolDelegate : public ToolDelegate {
   ActorTaskId GetTaskId() const override { return ActorTaskId(1); }
   AggregatedJournal& GetJournal() const override { return *journal_; }
   ActorToolFactory& GetToolFactory() const override { return *tool_factory_; }
+  actor_login::ActorLoginService* GetActorLoginService() override {
+    return nullptr;
+  }
+  void PromptToSelectCredential(
+      const std::vector<actor_login::Credential>& credentials,
+      CredentialSelectedCallback callback) override {}
+  std::optional<CredentialWithPermission> GetUserSelectedCredential(
+      const url::Origin& request_origin) const override {
+    return std::nullopt;
+  }
+  void InterruptFromTool() override {}
+  void UninterruptFromTool() override {}
 
   std::unique_ptr<TestProfileIOS> profile_;
   std::unique_ptr<AggregatedJournal> journal_;
@@ -67,7 +81,9 @@ class FakeToolDelegate : public ToolDelegate {
 // Test fixture for ActorEngine.
 class ActorEngineTest : public PlatformTest {
  protected:
-  ActorEngineTest() : engine_(&execution_updates_delegate_, &tool_delegate_) {}
+  ActorEngineTest() : engine_(&execution_updates_delegate_, &tool_delegate_) {
+    scoped_feature_list_.InitAndEnableFeature(kActorTools);
+  }
 
   void SetUp() override { PlatformTest::SetUp(); }
 
@@ -91,6 +107,7 @@ class ActorEngineTest : public PlatformTest {
     engine_.CompleteActions(std::move(result));
   }
 
+  base::test::ScopedFeatureList scoped_feature_list_;
   base::test::TaskEnvironment task_environment_;
   MockActorEngineExecutionUpdatesDelegate execution_updates_delegate_;
   FakeToolDelegate tool_delegate_;

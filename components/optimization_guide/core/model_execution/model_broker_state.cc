@@ -18,6 +18,7 @@
 #include "base/task/thread_pool.h"
 #include "base/trace_event/trace_event.h"
 #include "components/optimization_guide/core/delivery/optimization_guide_model_provider.h"
+#include "components/optimization_guide/core/model_execution/model_execution_prefs.h"
 #include "components/optimization_guide/core/model_execution/on_device_asset_manager.h"
 #include "components/optimization_guide/core/model_execution/on_device_features.h"
 #include "components/optimization_guide/core/model_execution/on_device_model_access_controller.h"
@@ -27,6 +28,7 @@
 #include "components/optimization_guide/core/optimization_guide_features.h"
 #include "components/optimization_guide/public/mojom/model_broker.mojom.h"
 #include "components/optimization_guide/public/mojom/model_broker_debug.mojom.h"
+#include "components/prefs/pref_service.h"
 
 namespace optimization_guide {
 
@@ -51,7 +53,8 @@ ModelBrokerState::ModelBrokerState(
         classifier_delegate,
     on_device_model::ServiceClient::LaunchFn launch_fn,
     component_updater::ComponentUpdateService* component_update_service)
-    : service_client_(std::move(launch_fn)),
+    : local_state_(local_state),
+      service_client_(std::move(launch_fn)),
       download_progress_manager_(
           component_update_service,
           std::vector<std::string>{base_delegate->GetComponentId()}),
@@ -93,8 +96,12 @@ ModelBrokerState::ModelBrokerState(
         service_client_.GetSafeRef(), model_broker_impl_,
         std::move(classifier_delegate));
   }
+  component_state_manager_.AddObserver(this);
 }
-ModelBrokerState::~ModelBrokerState() = default;
+
+ModelBrokerState::~ModelBrokerState() {
+  component_state_manager_.RemoveObserver(this);
+}
 
 void ModelBrokerState::BindModelBroker(
     mojo::PendingReceiver<mojom::ModelBroker> receiver) {
@@ -227,6 +234,11 @@ void ModelBrokerState::GetStateInfo(
   result->assets = component_state_manager_.GetBrokerAssets();
   result->use_cases = model_broker_impl_.GetBrokerUseCaseInfo();
 
+  result->model_crash_count = local_state_->GetInteger(
+      model_execution::prefs::localstate::kOnDeviceModelCrashCount);
+  result->max_model_crash_count =
+      optimization_guide::features::GetOnDeviceModelCrashCountBeforeDisable();
+
   auto models_with_paths = base_model_controller_.GetBrokerModels();
 
   base::ThreadPool::PostTaskAndReplyWithResult(
@@ -255,6 +267,22 @@ void ModelBrokerState::SetUseCaseRequested(const std::string& use_case,
 
 void ModelBrokerState::UninstallModels() {
   component_state_manager_.ForceUninstall();
+}
+
+void ModelBrokerState::ResetModelCrashCount() {
+  local_state_->SetInteger(
+      model_execution::prefs::localstate::kOnDeviceModelCrashCount, 0);
+}
+
+void ModelBrokerState::AddObserver(
+    mojo::PendingRemote<mojom::ModelBrokerDebugObserver> observer) {
+  debug_observers_.Add(std::move(observer));
+}
+
+void ModelBrokerState::StateChanged(MaybeOnDeviceModelComponentState) {
+  for (auto& observer : debug_observers_) {
+    observer->OnBrokerStateChanged();
+  }
 }
 
 }  // namespace optimization_guide

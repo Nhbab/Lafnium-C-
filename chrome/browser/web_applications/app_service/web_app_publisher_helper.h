@@ -46,6 +46,7 @@
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/notification_display_service.h"
+#include "components/services/app_service/public/cpp/app_registry_cache.h"
 #include "components/services/app_service/public/cpp/preferred_apps_list_handle.h"
 #endif
 
@@ -118,6 +119,7 @@ class WebAppPublisherHelper : public WebAppRegistrarObserver,
                               public NotificationDisplayService::Observer,
                               public MediaStreamCaptureIndicator::Observer,
                               public apps::PreferredAppsListHandle::Observer,
+                              public apps::AppRegistryCache::Observer,
 #endif
                               public content_settings::Observer {
  public:
@@ -360,6 +362,11 @@ class WebAppPublisherHelper : public WebAppRegistrarObserver,
                              bool is_preferred_app) override;
   void OnPreferredAppsListWillBeDestroyed(
       apps::PreferredAppsListHandle* handle) override;
+
+  // apps::AppRegistryCache::Observer:
+  void OnAppTypeInitialized(apps::AppType app_type) override;
+  void OnAppRegistryCacheWillBeDestroyed(
+      apps::AppRegistryCache* cache) override;
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
   // content_settings::Observer:
@@ -408,6 +415,14 @@ class WebAppPublisherHelper : public WebAppRegistrarObserver,
   // Returns whether the app should show a badge.
   bool ShouldShowBadge(const std::string& app_id,
                        bool has_notification_indicator);
+
+  // Sets a web app as supported for capturing links if there are no other
+  // non-web apps that captures the similar set of links. Call this after
+  // `CreateWebApp()` has been called and the web app has been published to the
+  // AppService so that the intent_filters are set on the corresponding
+  // `AppPtr`.
+  void MaybeSetSupportedLinksPreference(const WebApp* web_app,
+                                        bool app_had_supported_links);
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
   // Called after the user has allowed or denied an app launch with files.
@@ -482,6 +497,10 @@ class WebAppPublisherHelper : public WebAppRegistrarObserver,
   base::ScopedObservation<apps::PreferredAppsListHandle,
                           apps::PreferredAppsListHandle::Observer>
       preferred_apps_list_observation_{this};
+
+  base::ScopedObservation<apps::AppRegistryCache,
+                          apps::AppRegistryCache::Observer>
+      app_registry_cache_observation_{this};
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
   std::map<std::string, WebAppShortcutsMenuItemInfo> shortcut_id_map_;

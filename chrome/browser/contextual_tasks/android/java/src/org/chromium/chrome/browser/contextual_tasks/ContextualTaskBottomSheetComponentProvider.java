@@ -13,17 +13,25 @@ import androidx.annotation.Px;
 import org.jni_zero.CalledByNative;
 import org.jni_zero.JNINamespace;
 
+import org.chromium.base.supplier.MonotonicObservableSupplier;
+import org.chromium.base.supplier.NullableObservableSupplier;
 import org.chromium.build.annotations.NullMarked;
-import org.chromium.chrome.browser.tab_bottom_sheet.TabBottomSheetComponentProvider;
+import org.chromium.build.annotations.Nullable;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab_bottom_sheet.CoBrowseComponentProvider;
+import org.chromium.chrome.browser.tab_bottom_sheet.CoBrowseComponentProvider.TabSelectionDelegate;
+import org.chromium.chrome.browser.tab_bottom_sheet.PeekViewManager;
 import org.chromium.chrome.browser.tab_bottom_sheet.TabBottomSheetContent;
+import org.chromium.chrome.browser.tab_bottom_sheet.TabBottomSheetManager;
 
 /**
- * Concrete implementation of {@link TabBottomSheetComponentProvider} for Contextual Tasks.
- * Instantiates specialized components.
+ * Concrete implementation of {@link CoBrowseComponentProvider} for Contextual Tasks. Instantiates
+ * specialized components.
  */
 @NullMarked
 @JNINamespace("contextual_tasks")
-public class ContextualTaskBottomSheetComponentProvider implements TabBottomSheetComponentProvider {
+public class ContextualTaskBottomSheetComponentProvider implements CoBrowseComponentProvider {
 
     /**
      * Instantiates the content provider from C++.
@@ -44,7 +52,6 @@ public class ContextualTaskBottomSheetComponentProvider implements TabBottomShee
             @ColorInt int backgroundColor,
             @Px int peekViewHeight,
             @IdRes int peekViewContainerId,
-            @IdRes int emptyPlaceholderContainerId,
             Runnable onBackPressed) {
         return new ContextualTaskBottomSheetContent(
                 contentView,
@@ -52,7 +59,15 @@ public class ContextualTaskBottomSheetComponentProvider implements TabBottomShee
                 backgroundColor,
                 peekViewHeight,
                 peekViewContainerId,
-                emptyPlaceholderContainerId,
                 onBackPressed);
+    }
+
+    @Override
+    public @Nullable PeekViewManager createPeekViewManager(
+            TabBottomSheetManager tabBottomSheetManager,
+            MonotonicObservableSupplier<Profile> profileSupplier,
+            NullableObservableSupplier<Tab> tabSupplier,
+            TabSelectionDelegate tabSelectionDelegate) {
+        return null;
     }
 }

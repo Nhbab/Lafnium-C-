@@ -337,6 +337,17 @@ const AtomicString& AriaTokenAttributeFromValue(const QualifiedName& attribute,
   return value;
 }
 
+bool IsGenericWrapper(const Element& element, const AtomicString& role_str) {
+  if (!role_str.empty()) {
+    return false;
+  }
+
+  return element.HasTagName(html_names::kDivTag) ||
+         element.HasTagName(html_names::kSpanTag) ||
+         element.HasTagName(html_names::kSlotTag) ||
+         element.IsCustomElement();
+}
+
 }  // namespace
 
 int32_t ToAXMarkerType(DocumentMarker::MarkerType marker_type) {
@@ -1341,6 +1352,34 @@ void AXObject::PopulateAXRelativeBounds(ui::AXRelativeBounds& bounds,
   gfx::Transform container_transform;
   GetRelativeBounds(&offset_container, bounds_in_container, container_transform,
                     clips_children);
+
+  // CSS math functions can produce infinities or NaNs which must be sanitized
+  // before reaching Mojo to avoid security validation errors.
+  if (!std::isfinite(bounds_in_container.x())) {
+    bounds_in_container.set_x(0);
+  }
+  if (!std::isfinite(bounds_in_container.y())) {
+    bounds_in_container.set_y(0);
+  }
+  if (!std::isfinite(bounds_in_container.width())) {
+    bounds_in_container.set_width(0);
+  }
+  if (!std::isfinite(bounds_in_container.height())) {
+    bounds_in_container.set_height(0);
+  }
+
+  if (!container_transform.IsIdentity()) {
+    for (int i = 0; i < 4; ++i) {
+      for (int j = 0; j < 4; ++j) {
+        if (!std::isfinite(container_transform.rc(i, j))) {
+          container_transform.MakeIdentity();
+          goto done;
+        }
+      }
+    }
+  }
+done:
+
   bounds.bounds = bounds_in_container;
   if (offset_container && !offset_container->IsDetached())
     bounds.offset_container_id = offset_container->AXObjectID();
@@ -1969,6 +2008,15 @@ void AXObject::SerializeOtherScreenReaderAttributes(
   if (CanvasHasFallbackContent()) {
     node_data->AddBoolAttribute(
         ax::mojom::blink::BoolAttribute::kCanvasHasFallback, true);
+  }
+
+  if (node_data->role == ax::mojom::blink::Role::kCanvas) {
+    String canvas_annotation = CanvasAnnotation();
+    if (!canvas_annotation.empty()) {
+      TruncateAndAddStringAttribute(
+          node_data, ax::mojom::blink::StringAttribute::kCanvasAnnotation,
+          canvas_annotation);
+    }
   }
 
   if (IsRangeValueSupported()) {
@@ -2673,8 +2721,7 @@ AXObject* AXObject::GetCommandForElementForDetailsRelation() const {
       html_element->command(), html_element->GetExecutionContext());
   if (action != CommandEventType::kTogglePopover &&
       action != CommandEventType::kShowPopover &&
-      action != CommandEventType::kHidePopover &&
-      action != CommandEventType::kToggleMenu) {
+      action != CommandEventType::kHidePopover) {
     return nullptr;
   }
 
@@ -3584,6 +3631,11 @@ void AXObject::UpdateCachedAttributeValuesIfNeeded(
     DCHECK(false)
         << AXObjectCache() << "\n* Object: " << this << parent_chain;
   }
+
+  // Queue children-changed dispatch while this update is on the stack; see
+  // ScopedCachedAttributeValuesUpdate.
+  AXObjectCacheImpl::ScopedCachedAttributeValuesUpdate
+      cached_attribute_values_update_guard(AXObjectCache());
 
 #if DCHECK_IS_ON()  // Required in order to get Lifecycle().ToString()
   DCHECK(!is_computing_role_)
@@ -5958,8 +6010,7 @@ bool AXObject::IsOrphanedListItem(const Element& element) const {
       continue;
     }
 
-    // Skip anonymous/generic <div> wrappers without explicit roles.
-    if (parent->HasTagName(html_names::kDivTag) && role_str.empty()) {
+    if (IsGenericWrapper(*parent, role_str)) {
       continue;
     }
 
@@ -6012,7 +6063,7 @@ bool AXObject::IsOrphanedOption(const Element& element) const {
       continue;
     }
 
-    if (parent->HasTagName(html_names::kDivTag) && role_str.empty()) {
+    if (IsGenericWrapper(*parent, role_str)) {
       continue;
     }
 
@@ -6066,19 +6117,7 @@ bool AXObject::IsOrphanedTreeItem(const Element& element) const {
       continue;
     }
 
-    // Skip anonymous/generic <div> wrappers without explicit roles.
-    if (parent->HasTagName(html_names::kDivTag) && role_str.empty()) {
-      continue;
-    }
-
-    // Skip anonymous/generic <span> wrappers without explicit roles.
-    if (parent->HasTagName(html_names::kSpanTag) && role_str.empty()) {
-      continue;
-    }
-
-    // Skip generic custom element wrappers (e.g. <cr-tree-item>) without
-    // explicit roles.
-    if (parent->IsCustomElement() && role_str.empty()) {
+    if (IsGenericWrapper(*parent, role_str)) {
       continue;
     }
 
@@ -6912,6 +6951,11 @@ void AXObject::UpdateChildrenIfNecessary() {
   }
 
   UpdateCachedAttributeValuesIfNeeded();
+
+  // The cached-value update can remove |this|.
+  if (IsDetached()) {
+    return;
+  }
 
   ClearChildren();
   AddChildren();
